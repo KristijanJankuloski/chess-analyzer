@@ -18,6 +18,13 @@ describe("BoardPanel", () => {
     expect(Object.keys(styles).sort()).toEqual(["e2", "e4"]);
   });
 
+  it("paints the square styles itself, since a custom square renderer bypasses the board's own", () => {
+    render(<BoardPanel fen={FEN} orientation="white" lastMove={{ from: "e2", to: "e4" }} />);
+    const renderSquare = lastBoardOptions().squareRenderer!;
+    const { container } = render(renderSquare({ piece: null, square: "e4", children: null }));
+    expect(container.querySelector(".square")).toHaveStyle({ backgroundColor: "rgba(255, 213, 0, 0.42)" });
+  });
+
   it("draws the best-move arrow only when there is one", () => {
     const { rerender } = render(
       <BoardPanel fen={FEN} orientation="white" bestArrow={{ from: "b1", to: "c3" }} />,
@@ -71,6 +78,27 @@ describe("BoardPanel", () => {
     expect(onMove).not.toHaveBeenCalled();
   });
 
+  describe("dragging", () => {
+    const piece = { isSparePiece: false, position: "g1", pieceType: "wN" };
+
+    it("shows where the dragged piece can go until it is dropped", () => {
+      render(<BoardPanel fen={FEN} orientation="white" onMove={vi.fn().mockReturnValue(true)} />);
+      act(() => lastBoardOptions().onPieceDrag!({ isSparePiece: false, piece, square: "g1" }));
+      expect(Object.keys(lastBoardOptions().squareStyles ?? {}).sort()).toEqual(["f3", "h3"]);
+      act(() => {
+        lastBoardOptions().onPieceDrop!({ piece, sourceSquare: "g1", targetSquare: "f3" });
+      });
+      expect(lastBoardOptions().squareStyles).toEqual({});
+    });
+
+    it("clears the hints when the drag is cancelled", () => {
+      render(<BoardPanel fen={FEN} orientation="white" onMove={vi.fn()} />);
+      act(() => lastBoardOptions().onPieceDrag!({ isSparePiece: false, piece, square: "g1" }));
+      act(() => lastBoardOptions().onPieceDragCancel!());
+      expect(lastBoardOptions().squareStyles).toEqual({});
+    });
+  });
+
   describe("click to move", () => {
     const pawn = { pieceType: "wP" };
     const click = (square: string, piece: { pieceType: string } | null) =>
@@ -80,7 +108,7 @@ describe("BoardPanel", () => {
       const onMove = vi.fn().mockReturnValue(true);
       render(<BoardPanel fen={FEN} orientation="white" onMove={onMove} />);
       click("e2", pawn);
-      expect(Object.keys(lastBoardOptions().squareStyles ?? {})).toEqual(["e2"]);
+      expect(Object.keys(lastBoardOptions().squareStyles ?? {}).sort()).toEqual(["e2", "e3", "e4"]);
       click("e4", null);
       expect(onMove).toHaveBeenCalledWith("e2", "e4");
       expect(lastBoardOptions().squareStyles).toEqual({});
@@ -101,7 +129,7 @@ describe("BoardPanel", () => {
       click("e2", pawn);
       click("d2", pawn);
       expect(onMove).toHaveBeenCalledWith("e2", "d2");
-      expect(Object.keys(lastBoardOptions().squareStyles ?? {})).toEqual(["d2"]);
+      expect(Object.keys(lastBoardOptions().squareStyles ?? {}).sort()).toEqual(["d2", "d3", "d4"]);
     });
 
     it("forgets the selection when a refused move lands on an empty square", () => {
@@ -124,6 +152,21 @@ describe("BoardPanel", () => {
       render(<BoardPanel fen={FEN} orientation="white" />);
       click("e2", pawn);
       expect(lastBoardOptions().squareStyles).toEqual({});
+    });
+
+    it("marks empty destinations with a dot and capture squares with a ring", () => {
+      const fen = "rnbqkbnr/ppp1pppp/8/3p4/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2";
+      render(<BoardPanel fen={fen} orientation="white" onMove={vi.fn()} />);
+      click("e4", pawn);
+      const styles = lastBoardOptions().squareStyles ?? {};
+      expect(styles.e5.backgroundImage).toMatch(/radial-gradient\(circle, rgba/);
+      expect(styles.d5.backgroundImage).toMatch(/radial-gradient\(circle, transparent/);
+    });
+
+    it("shows no destinations for a piece of the side not to move", () => {
+      render(<BoardPanel fen={FEN} orientation="white" onMove={vi.fn()} />);
+      click("e7", { pieceType: "bP" });
+      expect(Object.keys(lastBoardOptions().squareStyles ?? {})).toEqual(["e7"]);
     });
 
     it("drops the selection when the position changes", () => {
