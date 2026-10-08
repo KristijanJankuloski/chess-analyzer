@@ -21,7 +21,7 @@ Core principle (from `AGENTS.md`) is unchanged: **Stockfish is the authority on 
 | Grounding | Rust computes a **facts digest** from the played move and the engine's lines (captures, checks, mates, material along the lines, pieces left hanging, the opponent's best reply). The model only paraphrases it. No separate output validator in this milestone. |
 | Model class | Prompts are sized for a 3-8B instruct model on CPU or a modest GPU. No specific model is hard-coded or named in the UI. |
 | Structure | Facts in `crates/core` (pure chess). Everything language-related in a new `crates/narrator` that depends on core. Core never depends on narrator. |
-| Default | Off. Nothing touches the network until the user enables it in Settings. |
+| Coach toggle | The LLM coach is one switch in Settings (`llm.enabled`), **off by default**. Off means the app is a pure Stockfish tool, exactly as before this milestone: no connection of any kind, no LLM controls anywhere in the UI, and no change to review or live behaviour. See "The coach toggle". |
 | Cache | One SQLite table keyed by a hash of the exact prompt, model and prompt version. It is independent of any game id, so review and live share it. |
 | Streaming | Not in this milestone. The template sentence is shown until the text lands. |
 
@@ -73,7 +73,8 @@ pub struct ExplainRequest {
 - what the best move does, from the same list;
 - the opponent's best reply to the played move, in SAN;
 - the material balance now, after the reply line and after the best line, so "this loses a knight" is a computed fact;
-- the first 4-6 moves of the best line in SAN.
+- the first 4-6 moves of the best line in SAN;
+- king safety along the lines: a check answered by a king move, and lost castling rights. In a manual test on the Opera Game (6...Nf6) the material at the end of the played and best lines was identical, so material alone could not explain a 13.8-point loss; the forced king move did.
 
 Each fact is optional. A PV move that does not replay drops its own fact; if even the basics cannot be built, no model call is made. The digest is deterministic and unit-testable.
 
@@ -97,7 +98,7 @@ Blocking, to match the thread-based `ReviewJobs` and `LiveSession` without addin
 
 The system prompt is a versioned constant (`PROMPT_VERSION`). It states that the facts are engine ground truth; forbids naming any piece, square or move that is not in them; forbids re-judging the class or the best move; and fixes the shape (2-3 plain sentences, no markdown, no numbers beyond those given). It carries one or two short worked examples. The user message is the rendered digest. One prompt is one move and a few hundred tokens; the whole game is never sent.
 
-The reply is trimmed and stripped of stray markdown and quotes. An empty reply, or one far over the length cap, is a failed call (`Empty` / `BadResponse`) and is not cached.
+The reply is trimmed and stripped of stray markdown and quotes. If it repeats the prompt (small models do this: in a manual test llama3.2 3B echoed the whole FACTS block), everything up to the last `COMMENT:` marker is dropped. An empty reply, or one far over the length cap, is a failed call (`Empty` / `BadResponse`) and is not cached.
 
 ### Cache
 
@@ -129,6 +130,20 @@ llm: { enabled: false,
        auto_explain: true }       // explain critical moves after a review; live is always manual
 ```
 
+### The coach toggle
+
+`llm.enabled` is the single switch, labelled "AI coach (local LLM)" in Settings, and it takes effect immediately. When it is **off**:
+
+- **No connection, ever.** No provider object is built, no worker thread is started, and no HTTP request is made: not at startup, not when Settings opens, not on any screen. `check()` is never called.
+- **No LLM UI.** The AI badge, Explain and Regenerate buttons, the "Explaining 3/9" chip and the status chip are not rendered. The commentary line is the template sentence, as today. The coach's fields in Settings (URL, model, key, auto-explain, Test connection) are collapsed beneath the toggle.
+- **Commands refuse.** `llm_status` returns `Disabled` without touching the network, `explain_*` return a `Disabled` error, and `explanations_lookup` returns nothing. The UI does not call them while the toggle is off.
+- **Stored explanations are kept, not shown.** The cache rows stay in SQLite; turning the coach back on makes them visible again. (One behaviour, chosen for predictability: "off" never shows AI text. Showing the old text while off is a one-line change if preferred.)
+- **Turning it off mid-run** drops queued explanations. A call already in flight finishes and is cached, but is not shown.
+
+Turning it **on** does not probe the server. The user presses "Test connection", or the first Explain reports `Unreachable` if the server is not running.
+
+### Validation and persistence
+
 - `validate()` checks that the URL parses and, when enabled, that a model name is set.
 - Changing `llm` fields does **not** rebuild the live Stockfish session. The existing rebuild check applies to the engine fields only.
 - The API key is stored in plain text in `settings.json`. This is fine for the intended Ollama setup (no key); keychain storage is out of scope. The Settings screen says so next to the field.
@@ -139,8 +154,8 @@ llm: { enabled: false,
 
 | Command | Purpose |
 |---|---|
-| `llm_status()` | Runs `check()`; returns reachable / model present / error. |
-| `explanations_lookup(source, plies)` | Cache read only. Never calls the model; works while the LLM is disabled. |
+| `llm_status()` | Runs `check()`; returns reachable / model present / error. `Disabled` (no network) when the coach is off. |
+| `explanations_lookup(source, plies)` | Cache read only. Never calls the model. Returns nothing while the coach is off. |
 | `explain_move(source, ply, force)` | Returns `{ key, text? }` at once. If not cached, queues a call at the front. `force` regenerates. |
 | `explain_critical(source)` | Queues every critical ply of a saved game not already cached. Started automatically when a review finishes (if `auto_explain`) and when a saved game is opened; cached plies cost nothing. |
 | `cancel_explain(scope)` | Drops queued items for that scope. |
@@ -160,7 +175,7 @@ The commentary line shows the template for the selected move, with an "Explain" 
 - If the move is still provisional (shallow search, or the game is not over), the text carries "based on depth N, may change". Pressing Explain again after the search has deepened produces a new explanation, because the digest differs.
 - The model and Stockfish compete for CPU while the explanation is generated. Because the user chooses when, this is their trade-off.
 - Cached explanations for moves in the current game show without pressing anything (`explanations_lookup`), as long as the digest is unchanged.
-- The button is hidden or disabled, with the reason, when commentary is disabled or the server is unreachable.
+- The button is not rendered when the coach is off. When the coach is on but the server is unreachable, it stays visible and a press reports the error.
 
 ### Settings screen
 
@@ -168,11 +183,11 @@ A "Commentary" section: enable toggle, base URL, model, optional API key, auto-e
 
 ### Disabled or unreachable
 
-Previously cached text still shows. Generation buttons are hidden or disabled with the reason. The template covers everything else. A review never fails because of the LLM.
+Off: the pure Stockfish app (see "The coach toggle"). On but unreachable: the template covers everything, buttons stay visible and report the error, and Settings shows the reason. A review never fails because of the LLM.
 
 ## Errors
 
-- **Disabled:** no calls are made; cached text is shown.
+- **Coach off:** no calls and no connection; no LLM UI; stored text hidden.
 - **Unreachable, timeout, HTTP error, empty or oversized reply:** a `Failed` event; the UI keeps the template and offers "Couldn't generate: retry". Failures are never cached.
 - **Batch:** one `Unreachable` stops the whole batch. Other per-move errors continue; three in a row abort it. A single summary is shown, not one message per move.
 - **Digest problems:** the affected fact is left out; if the basics cannot be built, no call is made.
@@ -188,7 +203,7 @@ Previously cached text still shows. Generation buttons are hidden or disabled wi
   - `OpenAiCompatible` against a small stub HTTP server on a local port: success, 404, malformed JSON, timeout and `check()`.
   - Prompt snapshot tests.
   - One integration test against a real local model, skipped when none is reachable (as with the Stockfish tests).
-- **Frontend (fake `Api`):** the template-to-AI swap and badge, regenerate, disabled and cached states, and failure. The live Explain button: it sends exactly one request per press, shows busy and then the AI text, shows a provisional note on a shallow analysis, is disabled when commentary is off, and nothing is sent without a press. The Settings section.
+- **Frontend (fake `Api`):** the template-to-AI swap and badge, regenerate, cached and failure states. **Coach off:** no LLM element is rendered anywhere, no `Api` LLM method is called, and Settings shows only the toggle. In `narrator`, with the coach off the service constructs no provider and a `ScriptedProvider` records zero calls. The live Explain button: it sends exactly one request per press, shows busy and then the AI text, shows a provisional note on a shallow analysis, is absent when the coach is off, and nothing is sent without a press. The Settings section.
 - **End-to-end:** `npm run e2e:explain` drives the real app against a stub OpenAI-compatible server, so it needs no model.
 - **Tuning tool:** `chess-analyzer explain game.pgn [--dry-run]` prints each critical move's digest and explanation; `--dry-run` prints only the prompts. Prompt wording and the digest fields are tuned with it against a real model, as thresholds were tuned with the review CLI.
 - The generated TypeScript drift check in CI covers the new types.
@@ -209,9 +224,9 @@ Previously cached text still shows. Generation buttons are hidden or disabled wi
 
 ## Left for the implementation plan
 
-- The exact digest fields and the rule for a "hanging piece".
-- Prompt wording and worked examples, tuned with `chess-analyzer explain` against a real model.
+- The exact digest fields and the rule for a "poorly defended" piece. Counting attackers against defenders is not enough: it misses batteries (after 7.Qb3 the queen stands behind Bc4 on the diagonal to f7), so the plan needs a real static-exchange evaluation.
+- Prompt wording and worked examples, tuned with `chess-analyzer explain` against a real model. Known from manual tests: llama3.1 8B gave a good explanation of 6...Nf6; llama3.2 3B echoed the facts and named the wrong side, which suggests the user message should not end on a bare `COMMENT:` label.
 - The `ureq` version and its TLS feature (needed for `https://` providers such as OpenAI).
 - How `LiveSession` exposes the current analysis of a ply to the service.
 - The default values for `max_tokens`, temperature, the length cap and the timeouts.
-- The wording of the recommended-model hint.
+- The wording of the recommended-model hint: recommend a 7-8B instruct model, and say that smaller models may repeat the input or name the wrong side.
