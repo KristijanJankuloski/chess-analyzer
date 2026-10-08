@@ -118,6 +118,41 @@ pub fn parse_pgn(text: &str) -> Result<Vec<Game>, GameError> {
     Ok(games)
 }
 
+/// A one-line description of a game inside a PGN, for choosing among several.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct PgnGameInfo {
+    /// Position in the list `parse_pgn` returns.
+    pub index: usize,
+    pub white: String,
+    pub black: String,
+    pub result: String,
+    pub event: String,
+    pub date: String,
+    /// Number of half-moves.
+    pub moves: usize,
+}
+
+/// Describes every game `parse_pgn` would return, in the same order.
+pub fn describe_pgn(text: &str) -> Result<Vec<PgnGameInfo>, GameError> {
+    Ok(parse_pgn(text)?
+        .iter()
+        .enumerate()
+        .map(|(index, game)| {
+            let header = |key: &str| game.headers.get(key).cloned().unwrap_or_else(|| "?".into());
+            PgnGameInfo {
+                index,
+                white: header("White"),
+                black: header("Black"),
+                result: header("Result"),
+                event: header("Event"),
+                date: header("Date"),
+                moves: game.moves.len(),
+            }
+        })
+        .collect())
+}
+
 fn parse_fen(fen: &str) -> Result<Chess, GameError> {
     fen.parse::<Fen>()
         .map_err(|e| GameError::InvalidFen(e.to_string()))?
@@ -451,5 +486,33 @@ mod tests {
                 mv: "e2e5".into()
             }
         );
+    }
+
+    #[test]
+    fn describing_a_pgn_lists_its_games_in_review_order() {
+        let pgn = "[White \"A\"]\n[Black \"B\"]\n[Event \"Club\"]\n[Date \"2024.01.02\"]\n[Result \"1-0\"]\n\n1. e4 e5 2. Nf3 1-0\n\n[Event \"Empty\"]\n\n*\n\n1. d4 d5 *\n";
+        let infos = describe_pgn(pgn).unwrap();
+        assert_eq!(
+            infos.len(),
+            2,
+            "the move-less game is skipped, as in parse_pgn"
+        );
+        assert_eq!(
+            infos[0],
+            PgnGameInfo {
+                index: 0,
+                white: "A".into(),
+                black: "B".into(),
+                result: "1-0".into(),
+                event: "Club".into(),
+                date: "2024.01.02".into(),
+                moves: 3,
+            }
+        );
+        assert_eq!(
+            (infos[1].index, infos[1].white.as_str(), infos[1].moves),
+            (1, "?", 2)
+        );
+        assert_eq!(describe_pgn("nonsense"), Err(GameError::Empty));
     }
 }
