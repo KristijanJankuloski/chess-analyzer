@@ -218,6 +218,19 @@ impl EngineConfig {
     }
 }
 
+/// Stockfish is a console program. The desktop app in a release build has no console of its
+/// own, so on Windows it would open a visible console window for every engine it starts, and
+/// closing that window would kill the engine mid-review.
+#[cfg(windows)]
+fn hide_console_window(command: &mut Command) {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    command.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+fn hide_console_window(_command: &mut Command) {}
+
 /// A running Stockfish process.
 pub struct UciEngine {
     config: EngineConfig,
@@ -232,10 +245,13 @@ impl UciEngine {
         if !config.path.is_file() {
             return Err(EngineError::NotFound);
         }
-        let mut child = Command::new(&config.path)
+        let mut command = Command::new(&config.path);
+        command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::null());
+        hide_console_window(&mut command);
+        let mut child = command
             .spawn()
             .map_err(|e| EngineError::Spawn(e.to_string()))?;
         let stdin = child
