@@ -284,6 +284,55 @@ fn hide_console_window(command: &mut Command) {
 #[cfg(not(windows))]
 fn hide_console_window(_command: &mut Command) {}
 
+/// How long the engine gets to answer `stop` (and the `isready` that follows it).
+const STOP_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// The live search a `UciEngine` is running, if any, and the lines gathered for the depth
+/// being reported.
+struct LiveSearch {
+    active: bool,
+    stm: Side,
+    multipv: u32,
+    depth: u32,
+    group: BTreeMap<u32, AnalysisLine>,
+    ready: VecDeque<SearchUpdate>,
+}
+
+impl LiveSearch {
+    fn idle() -> LiveSearch {
+        LiveSearch {
+            active: false,
+            stm: Side::White,
+            multipv: 1,
+            depth: 0,
+            group: BTreeMap::new(),
+            ready: VecDeque::new(),
+        }
+    }
+
+    /// Turns the gathered lines into an update.
+    fn flush(&mut self) {
+        if !self.group.is_empty() {
+            let lines = std::mem::take(&mut self.group).into_values().collect();
+            self.ready
+                .push_back(SearchUpdate::Depth(PositionAnalysis { lines }));
+        }
+    }
+
+    /// A depth is complete when all requested lines have arrived, or when the next depth starts
+    /// (a position with fewer legal moves than lines never fills up).
+    fn take(&mut self, line: AnalysisLine) {
+        if line.depth != self.depth {
+            self.flush();
+            self.depth = line.depth;
+        }
+        self.group.insert(line.rank, line);
+        if self.group.len() as u32 >= self.multipv {
+            self.flush();
+        }
+    }
+}
+
 /// A running Stockfish process.
 pub struct UciEngine {
     config: EngineConfig,
@@ -291,6 +340,7 @@ pub struct UciEngine {
     stdin: ChildStdin,
     lines: Receiver<String>,
     name: String,
+    live: LiveSearch,
 }
 
 impl UciEngine {
@@ -329,6 +379,7 @@ impl UciEngine {
             stdin,
             lines,
             name: String::new(),
+            live: LiveSearch::idle(),
         };
         engine.handshake()?;
         Ok(engine)
@@ -405,6 +456,86 @@ impl UciEngine {
         let fresh = UciEngine::start(self.config.clone())?;
         *self = fresh;
         Ok(())
+    }
+
+    /// Interrupts the live search, if there is one. `stop` makes Stockfish answer with
+    /// `bestmove`; reading up to it (and then syncing with `isready`) is what keeps that
+    /// answer from being taken for the result of the next search.
+    fn stop_search(&mut self) -> Result<(), EngineError> {
+        self.live.ready.clear();
+        self.live.group.clear();
+        if !self.live.active {
+            return Ok(());
+        }
+        self.send("stop")?;
+        let deadline = Instant::now() + STOP_TIMEOUT;
+        while !self
+            .next_line(deadline, STOP_TIMEOUT)?
+            .starts_with("bestmove")
+        {}
+        self.live.active = false;
+        self.send("isready")?;
+        let deadline = Instant::now() + STOP_TIMEOUT;
+        while self.next_line(deadline, STOP_TIMEOUT)?.trim() != "readyok" {}
+        Ok(())
+    }
+}
+
+impl LiveEngine for UciEngine {
+    fn start(&mut self, fen: &str, multipv: u32, limit: SearchLimit) -> Result<(), EngineError> {
+        self.stop_search()?;
+        let multipv = multipv.max(1);
+        self.send(&format!("setoption name MultiPV value {multipv}"))?;
+        self.send(&format!("position fen {fen}"))?;
+        self.send(&match limit {
+            SearchLimit::Depth(depth) => format!("go depth {depth}"),
+            SearchLimit::Infinite => "go infinite".to_string(),
+        })?;
+        self.live = LiveSearch {
+            active: true,
+            stm: side_to_move(fen),
+            multipv,
+            ..LiveSearch::idle()
+        };
+        Ok(())
+    }
+
+    fn poll(&mut self, wait: Duration) -> Result<Option<SearchUpdate>, EngineError> {
+        if let Some(update) = self.live.ready.pop_front() {
+            return Ok(Some(update));
+        }
+        if !self.live.active {
+            return Ok(None);
+        }
+        let deadline = Instant::now() + wait;
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            let line = match self.lines.recv_timeout(remaining) {
+                Ok(line) => line,
+                Err(RecvTimeoutError::Timeout) => return Ok(None),
+                Err(RecvTimeoutError::Disconnected) => {
+                    return Err(EngineError::Io("engine exited".into()));
+                }
+            };
+            if line.starts_with("bestmove") {
+                self.live.active = false;
+                self.live.flush();
+                self.live.ready.push_back(SearchUpdate::Finished);
+            } else if let Some(parsed) = parse_info_line(&line, self.live.stm) {
+                self.live.take(parsed);
+            }
+            if let Some(update) = self.live.ready.pop_front() {
+                return Ok(Some(update));
+            }
+        }
+    }
+
+    fn stop(&mut self) -> Result<(), EngineError> {
+        self.stop_search()
+    }
+
+    fn recover(&mut self) -> Result<(), EngineError> {
+        self.restart()
     }
 }
 
@@ -774,5 +905,39 @@ mod tests {
     fn live_engines_can_be_used_as_trait_objects_on_another_thread() {
         let engine: Box<dyn LiveEngine + Send> = Box::new(ScriptedLiveEngine::new(|_| Vec::new()));
         std::thread::spawn(move || drop(engine)).join().unwrap();
+    }
+
+    #[test]
+    fn a_depth_is_reported_once_all_requested_lines_have_arrived() {
+        let mut search = LiveSearch::idle();
+        search.multipv = 2;
+        search.take(live_line(1, 5, "e2e4"));
+        assert!(search.ready.is_empty(), "half a depth is not reported");
+        search.take(live_line(2, 5, "d2d4"));
+        match search.ready.pop_front() {
+            Some(SearchUpdate::Depth(analysis)) => {
+                let shape: Vec<(u32, u32)> =
+                    analysis.lines.iter().map(|l| (l.rank, l.depth)).collect();
+                assert_eq!(shape, [(1, 5), (2, 5)]);
+            }
+            other => panic!("expected a depth update, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_short_group_is_reported_when_the_next_depth_starts() {
+        // A position with one legal move never fills its second line.
+        let mut search = LiveSearch::idle();
+        search.multipv = 3;
+        search.take(live_line(1, 5, "e2e4"));
+        search.take(live_line(1, 6, "e2e4"));
+        match search.ready.pop_front() {
+            Some(SearchUpdate::Depth(analysis)) => {
+                assert_eq!(analysis.lines.len(), 1);
+                assert_eq!(analysis.lines[0].depth, 5);
+            }
+            other => panic!("expected the depth-5 update, got {other:?}"),
+        }
+        assert!(search.ready.is_empty(), "depth 6 is still being gathered");
     }
 }

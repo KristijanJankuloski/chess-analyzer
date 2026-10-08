@@ -2,14 +2,21 @@
 //! run `scripts/setup-stockfish` or set STOCKFISH_PATH.
 
 use std::sync::atomic::AtomicBool;
+use std::time::{Duration, Instant};
 
 use chess_analyzer_core::cache::CachedAnalyzer;
 use chess_analyzer_core::classify::MoveClass;
-use chess_analyzer_core::engine::{Analyzer, EngineConfig, Limits, UciEngine, locate_stockfish};
+use chess_analyzer_core::engine::{
+    Analyzer, EngineConfig, Limits, LiveEngine, SearchLimit, SearchUpdate, UciEngine,
+    locate_stockfish,
+};
 use chess_analyzer_core::eval::Eval;
 use chess_analyzer_core::game::parse_pgn;
 use chess_analyzer_core::openings::OpeningBook;
 use chess_analyzer_core::review::{ReviewOptions, review_game};
+use shakmaty::fen::Fen;
+use shakmaty::uci::UciMove;
+use shakmaty::{CastlingMode, Chess};
 
 fn engine() -> Option<UciEngine> {
     let Some(path) = locate_stockfish(None) else {
@@ -220,4 +227,159 @@ fn a_timeout_restarts_the_engine_and_surfaces_an_error() {
         )
         .unwrap();
     assert_eq!(quick.lines.len(), 1);
+}
+
+// ---- live (interruptible) searches
+
+const START: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+const AFTER_E4: &str = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1";
+
+/// Polls until `done` accepts an update, returning every update seen. Gives up after 20 s.
+fn poll_until(engine: &mut UciEngine, done: impl Fn(&SearchUpdate) -> bool) -> Vec<SearchUpdate> {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let mut updates = Vec::new();
+    while Instant::now() < deadline {
+        if let Some(update) = engine.poll(Duration::from_millis(100)).unwrap() {
+            let last = done(&update);
+            updates.push(update);
+            if last {
+                return updates;
+            }
+        }
+    }
+    panic!("the search did not get there in time; saw {updates:?}");
+}
+
+fn depth_of(update: &SearchUpdate) -> Option<u32> {
+    match update {
+        SearchUpdate::Depth(analysis) => Some(analysis.lines[0].depth),
+        SearchUpdate::Finished => None,
+    }
+}
+
+fn is_legal(fen: &str, uci: &str) -> bool {
+    let position: Chess = fen
+        .parse::<Fen>()
+        .unwrap()
+        .into_position(CastlingMode::Standard)
+        .unwrap();
+    UciMove::from_ascii(uci.as_bytes())
+        .ok()
+        .and_then(|mv| mv.to_move(&position).ok())
+        .is_some()
+}
+
+#[test]
+fn an_infinite_search_deepens_with_all_lines_at_each_depth_until_stopped() {
+    let Some(mut engine) = engine() else { return };
+    engine.start(START, 3, SearchLimit::Infinite).unwrap();
+    let updates = poll_until(&mut engine, |u| depth_of(u).is_some_and(|d| d >= 10));
+
+    let mut previous = 0;
+    for update in &updates {
+        let SearchUpdate::Depth(analysis) = update else {
+            panic!("an infinite search must not finish: {update:?}");
+        };
+        let depth = analysis.lines[0].depth;
+        assert!(
+            depth > previous,
+            "depths must increase: {previous} then {depth}"
+        );
+        previous = depth;
+        assert_eq!(analysis.lines.len(), 3, "depth {depth}");
+        assert_eq!(
+            analysis.lines.iter().map(|l| l.rank).collect::<Vec<_>>(),
+            [1, 2, 3]
+        );
+        assert!(analysis.lines.iter().all(|l| l.depth == depth));
+    }
+
+    engine.stop().unwrap();
+    assert_eq!(engine.poll(Duration::from_millis(50)).unwrap(), None);
+}
+
+#[test]
+fn a_depth_limited_search_reports_up_to_its_depth_then_finishes() {
+    let Some(mut engine) = engine() else { return };
+    engine.start(START, 2, SearchLimit::Depth(6)).unwrap();
+    let updates = poll_until(&mut engine, |u| *u == SearchUpdate::Finished);
+    let depths: Vec<u32> = updates.iter().filter_map(depth_of).collect();
+    assert_eq!(depths.last(), Some(&6));
+    assert!(
+        depths.windows(2).all(|pair| pair[0] < pair[1]),
+        "{depths:?}"
+    );
+    assert_eq!(engine.poll(Duration::from_millis(50)).unwrap(), None);
+}
+
+#[test]
+fn a_new_search_never_sees_the_answer_of_the_one_it_replaced() {
+    let Some(mut engine) = engine() else { return };
+    engine.start(START, 1, SearchLimit::Infinite).unwrap();
+    poll_until(&mut engine, |u| depth_of(u).is_some_and(|d| d >= 4));
+
+    // Black is to move here, so every line must begin with a legal move for Black; a leftover
+    // line from the first search would begin with a White move.
+    engine.start(AFTER_E4, 2, SearchLimit::Depth(6)).unwrap();
+    let updates = poll_until(&mut engine, |u| *u == SearchUpdate::Finished);
+    for update in &updates {
+        if let SearchUpdate::Depth(analysis) = update {
+            for line in &analysis.lines {
+                assert!(is_legal(AFTER_E4, &line.pv[0]), "{:?}", line.pv);
+            }
+        }
+    }
+    assert_eq!(updates.last(), Some(&SearchUpdate::Finished));
+}
+
+#[test]
+fn restarting_again_and_again_stays_in_step() {
+    let Some(mut engine) = engine() else { return };
+    for round in 0..30 {
+        let (fen, black) = if round % 2 == 0 {
+            (START, false)
+        } else {
+            (AFTER_E4, true)
+        };
+        engine.start(fen, 1, SearchLimit::Infinite).unwrap();
+        // Sometimes interrupt at once, sometimes after a first answer.
+        if round % 3 == 0 {
+            poll_until(&mut engine, |u| depth_of(u).is_some());
+        }
+        engine.start(fen, 1, SearchLimit::Depth(3)).unwrap();
+        let updates = poll_until(&mut engine, |u| *u == SearchUpdate::Finished);
+        for update in &updates {
+            if let SearchUpdate::Depth(analysis) = update {
+                assert!(
+                    is_legal(fen, &analysis.lines[0].pv[0]),
+                    "round {round} (black to move: {black})"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn stopping_an_idle_engine_is_harmless_and_it_still_analyses_afterwards() {
+    let Some(mut engine) = engine() else { return };
+    engine.stop().unwrap();
+    engine.start(START, 1, SearchLimit::Infinite).unwrap();
+    poll_until(&mut engine, |u| depth_of(u).is_some());
+    engine.stop().unwrap();
+    engine.stop().unwrap();
+
+    let analysis = engine.analyze(START, &SHALLOW).unwrap();
+    assert_eq!(analysis.lines.len(), 3);
+}
+
+#[test]
+fn a_recovered_engine_searches_again() {
+    let Some(mut engine) = engine() else { return };
+    engine.start(START, 1, SearchLimit::Infinite).unwrap();
+    poll_until(&mut engine, |u| depth_of(u).is_some());
+    engine.recover().unwrap();
+    assert_eq!(engine.poll(Duration::from_millis(50)).unwrap(), None);
+
+    engine.start(START, 1, SearchLimit::Depth(4)).unwrap();
+    poll_until(&mut engine, |u| *u == SearchUpdate::Finished);
 }
