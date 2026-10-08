@@ -7,7 +7,7 @@ Status: Draft for review
 
 Chess.com-style review shows a sentence of plain-language commentary for each move. Today that slot is filled by a template (`describeMove` in `app/src/lib/commentary.ts`) built from the classification alone. This milestone fills it with an explanation written by a local LLM: what went wrong, and what the better move achieves.
 
-Success: opening a critical move in a finished review shows a short, accurate explanation that never contradicts the engine, generated on a 3-8B local model. In a live game, the newest move is explained automatically once it has been left alone for a few seconds. Everything stays local, and the app is fully usable with the LLM off, unreachable or missing.
+Success: opening a critical move in a finished review shows a short, accurate explanation that never contradicts the engine, generated on a 3-8B local model. In a live game, pressing Explain on a move sends it to the model. Everything stays local, and the app is fully usable with the LLM off, unreachable or missing.
 
 Core principle (from `AGENTS.md`) is unchanged: **Stockfish is the authority on chess; the LLM is only a commentator.** The model is never asked to calculate, judge a move or read a board. It paraphrases a short list of facts that Rust computed from the engine's own lines.
 
@@ -15,7 +15,7 @@ Core principle (from `AGENTS.md`) is unchanged: **Stockfish is the authority on 
 
 | Topic | Decision |
 |---|---|
-| When explanations are generated | Hybrid. After a review finishes, every critical move is explained in the background and cached. Any other move can be explained on demand. Live games explain only the newest move, automatically, after an idle delay (no button). |
+| When explanations are generated | Hybrid. After a review finishes, every critical move is explained in the background and cached. Any other move can be explained on demand. Live games are on demand only: an Explain button on the selected move, and nothing is sent to the model until it is pressed. Tried first: an automatic explanation of the newest move after an idle delay, dropped because a local 7-8B model is slow, and a call started automatically would compete with Stockfish for the CPU for no reason the user asked for. |
 | Backends | One OpenAI-compatible HTTP client (`{base_url}/chat/completions`) with a configurable base URL, model and optional API key. It covers Ollama (`http://localhost:11434/v1`), LM Studio, llama.cpp's `llama-server` and OpenAI. The `LlmProvider` trait stays so an embedded llama.cpp can be added later. |
 | What the model writes | Per-move explanations only: 2-3 plain sentences. No game summary, no Q&A. |
 | Grounding | Rust computes a **facts digest** from the played move and the engine's lines (captures, checks, mates, material along the lines, pieces left hanging, the opponent's best reply). The model only paraphrases it. No separate output validator in this milestone. |
@@ -42,7 +42,7 @@ crates/
   cli/                    # + `explain` subcommand
 app/
   src-tauri/              # + commands and the explain-event channel
-  src/                    # commentary slot, live timer, Settings section
+  src/                    # commentary slot, live Explain button, Settings section
 ```
 
 The dependency direction is the point of the split: `core::facts` is the only code that looks at a board, and `narrator` sees nothing but its output.
@@ -126,8 +126,7 @@ llm: { enabled: false,
        base_url: "http://localhost:11434/v1",
        model: "",
        api_key: None,
-       auto_explain: true,
-       live_delay_secs: 10 }      // 0 turns live explanations off
+       auto_explain: true }       // explain critical moves after a review; live is always manual
 ```
 
 - `validate()` checks that the URL parses and, when enabled, that a model name is set.
@@ -154,17 +153,18 @@ The commentary line shows the template immediately. LLM text replaces it with a 
 
 ### Live screen
 
-There is no Explain button. After the newest move has been left alone for `live_delay_secs`, the app calls `explain_move(Live, ply)`.
+The commentary line shows the template for the selected move, with an "Explain" button. Pressing it calls `explain_move(Live, ply)`. Nothing is sent to the model otherwise: there is no timer and no automatic live call.
 
-- The timer lives in the live hook, next to the revision logic. It resets on every move or take-back, and it runs only while the live search is running: if the user leaves the tab and the search pauses, nothing fires.
-- Only the newest move is auto-explained. Earlier moves show a cached explanation if they received one while they were newest, otherwise the template.
-- Each new move sends `cancel_explain("live")`.
-- If the move is still provisional (shallow search, or the game is not over), the text carries "based on depth N, may change".
-- The model and Stockfish compete for CPU while the explanation is generated. The delay and the 0 = off setting exist for this reason.
+- The button works on any classified move, not only the newest, using that move's current (frozen or still-deepening) analysis.
+- While the call runs the button shows a busy state. Moving on to another move does not cancel it; its text is cached and shown when the user returns to that move. A new move or take-back sends `cancel_explain("live")` to drop anything still queued.
+- If the move is still provisional (shallow search, or the game is not over), the text carries "based on depth N, may change". Pressing Explain again after the search has deepened produces a new explanation, because the digest differs.
+- The model and Stockfish compete for CPU while the explanation is generated. Because the user chooses when, this is their trade-off.
+- Cached explanations for moves in the current game show without pressing anything (`explanations_lookup`), as long as the digest is unchanged.
+- The button is hidden or disabled, with the reason, when commentary is disabled or the server is unreachable.
 
 ### Settings screen
 
-A "Commentary" section: enable toggle, base URL, model, optional API key, auto-explain toggle, live delay, and a "Test connection" button showing the `llm_status` result. A one-line hint says a 7-8B instruct model is recommended, without naming one.
+A "Commentary" section: enable toggle, base URL, model, optional API key, auto-explain toggle (for reviews only), and a "Test connection" button showing the `llm_status` result. A one-line hint says a 7-8B instruct model is recommended, without naming one.
 
 ### Disabled or unreachable
 
@@ -188,14 +188,14 @@ Previously cached text still shows. Generation buttons are hidden or disabled wi
   - `OpenAiCompatible` against a small stub HTTP server on a local port: success, 404, malformed JSON, timeout and `check()`.
   - Prompt snapshot tests.
   - One integration test against a real local model, skipped when none is reachable (as with the Stockfish tests).
-- **Frontend (fake `Api`):** the template-to-AI swap and badge, regenerate, disabled and cached states, and failure. The live timer is tested with fake timers: it fires after the delay, resets on a move, does not run while paused, and does nothing at 0. The Settings section.
+- **Frontend (fake `Api`):** the template-to-AI swap and badge, regenerate, disabled and cached states, and failure. The live Explain button: it sends exactly one request per press, shows busy and then the AI text, shows a provisional note on a shallow analysis, is disabled when commentary is off, and nothing is sent without a press. The Settings section.
 - **End-to-end:** `npm run e2e:explain` drives the real app against a stub OpenAI-compatible server, so it needs no model.
 - **Tuning tool:** `chess-analyzer explain game.pgn [--dry-run]` prints each critical move's digest and explanation; `--dry-run` prints only the prompts. Prompt wording and the digest fields are tuned with it against a real model, as thresholds were tuned with the review CLI.
 - The generated TypeScript drift check in CI covers the new types.
 
 ## Amends the live game spec
 
-`2026-10-08-live-game-design.md` says "This feature has no LLM". This milestone adds one narrow exception: the newest live move is explained automatically after an idle delay, using the shared cache. Live analyses are still not stored in SQLite; only explanation text, keyed by prompt hash, is.
+`2026-10-08-live-game-design.md` says "This feature has no LLM". This milestone adds one narrow exception: an Explain button on the live screen that sends the selected move to the model, using the shared cache. Nothing is sent automatically. Live analyses are still not stored in SQLite; only explanation text, keyed by prompt hash, is.
 
 ## Out of scope
 
@@ -204,7 +204,7 @@ Previously cached text still shows. Generation buttons are hidden or disabled wi
 - A content validator that rejects explanations mentioning things outside the digest.
 - An embedded llama.cpp and any model download or pull management.
 - Keychain storage for the API key.
-- On-demand explanations for earlier live moves, and a live Explain button.
+- Automatic explanation of live moves (an idle-delay trigger was tried in the design and dropped; it can be revisited if local models get fast enough).
 - Variations, as everywhere in v1.
 
 ## Left for the implementation plan
