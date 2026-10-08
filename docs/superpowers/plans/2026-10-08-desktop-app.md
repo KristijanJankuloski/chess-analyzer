@@ -2351,6 +2351,8 @@ export default defineConfig({
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- No favicon file: an empty one stops the browser asking for /favicon.ico (a 404 on every fresh start). -->
+    <link rel="icon" href="data:," />
     <title>Chess Analyzer</title>
   </head>
   <body>
