@@ -3,8 +3,10 @@
 //! All `Eval` values are stored from White's point of view.
 
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum Side {
     White,
@@ -30,7 +32,8 @@ impl From<shakmaty::Color> for Side {
 }
 
 /// A position evaluation from White's point of view.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[ts(export)]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum Eval {
     /// Centipawns. Positive favours White.

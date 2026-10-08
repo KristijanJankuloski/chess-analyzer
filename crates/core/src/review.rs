@@ -8,6 +8,7 @@ use shakmaty::san::SanPlus;
 use shakmaty::uci::UciMove;
 use shakmaty::{Chess, Color, Position, Role};
 use thiserror::Error;
+use ts_rs::TS;
 
 use crate::classify::{MoveClass, MoveContext, Thresholds, classify};
 use crate::engine::{AnalysisLine, Analyzer, EngineError, Limits, PositionAnalysis};
@@ -38,7 +39,8 @@ pub struct Progress {
     pub total: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct MoveReview {
     /// 1-based ply number.
     pub ply: usize,
@@ -63,13 +65,15 @@ pub struct MoveReview {
     pub critical: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct Accuracy {
     pub white: Option<f64>,
     pub black: Option<f64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct Review {
     pub headers: BTreeMap<String, String>,
     pub opening: Option<Opening>,

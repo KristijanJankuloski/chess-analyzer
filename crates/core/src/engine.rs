@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use ts_rs::TS;
 
 use crate::eval::{Eval, Side, UciScore};
 
@@ -32,7 +33,8 @@ pub enum EngineError {
 }
 
 /// Search limits for one analysis.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct Limits {
     pub depth: u32,
     pub multipv: u32,

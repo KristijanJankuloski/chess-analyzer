@@ -11,6 +11,7 @@ use shakmaty::san::SanPlus as ShakSanPlus;
 use shakmaty::uci::UciMove;
 use shakmaty::{CastlingMode, Chess, EnPassantMode};
 use thiserror::Error;
+use ts_rs::TS;
 
 use crate::eval::Side;
 
@@ -28,7 +29,8 @@ pub enum GameError {
     IllegalMove { ply: usize, mv: String },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct GameMove {
     pub san: String,
     pub uci: String,
@@ -36,7 +38,8 @@ pub struct GameMove {
 
 /// A single linear game. `positions[i]` is the FEN before `moves[i]`;
 /// the last entry is the final position, so `positions.len() == moves.len() + 1`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct Game {
     pub headers: BTreeMap<String, String>,
     pub positions: Vec<String>,
