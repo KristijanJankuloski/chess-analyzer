@@ -33,3 +33,11 @@ describe("SummaryPanel", () => {
     expect(screen.getByText("Opening not in the book")).toBeInTheDocument();
   });
 });
+
+describe("SummaryPanel without the opening line", () => {
+  it("leaves the opening out, for a game that is still being played", () => {
+    render(<SummaryPanel data={startLive(foolsMate.game)} hideOpening />);
+    expect(screen.queryByText(/opening/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText("White accuracy")).toBeInTheDocument();
+  });
+});

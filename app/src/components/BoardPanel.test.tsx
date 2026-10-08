@@ -135,3 +135,61 @@ describe("BoardPanel", () => {
     });
   });
 });
+
+describe("BoardPanel in a live game", () => {
+  it("draws the move that should have been played in red beside the engine's best move in green", () => {
+    render(
+      <BoardPanel
+        fen={FEN}
+        orientation="white"
+        bestArrow={{ from: "g1", to: "f3" }}
+        missArrow={{ from: "d2", to: "d4" }}
+      />,
+    );
+    const arrows = lastBoardOptions().arrows ?? [];
+    expect(arrows).toHaveLength(2);
+    const red = arrows.find((a) => a.startSquare === "d2");
+    const green = arrows.find((a) => a.startSquare === "g1");
+    expect(red?.endSquare).toBe("d4");
+    expect(green?.endSquare).toBe("f3");
+    expect(red?.color).not.toBe(green?.color);
+  });
+
+  it("draws a red arrow on its own", () => {
+    render(<BoardPanel fen={FEN} orientation="white" missArrow={{ from: "d2", to: "d4" }} />);
+    expect(lastBoardOptions().arrows).toEqual([
+      expect.objectContaining({ startSquare: "d2", endSquare: "d4" }),
+    ]);
+  });
+
+  it("marks a badge that may still change", () => {
+    render(
+      <BoardPanel
+        fen={FEN}
+        orientation="white"
+        badge={{ square: "g4", cls: "blunder", provisional: true }}
+      />,
+    );
+    const { container } = render(
+      lastBoardOptions().squareRenderer!({ piece: null, square: "g4", children: null }),
+    );
+    const badge = container.querySelector(".class-badge");
+    expect(badge).toHaveClass("class-badge--provisional");
+    expect(badge).toHaveAttribute("title", "Blunder (provisional)");
+  });
+
+  it("does not mark a settled badge", () => {
+    render(
+      <BoardPanel
+        fen={FEN}
+        orientation="white"
+        badge={{ square: "g4", cls: "blunder", provisional: false }}
+      />,
+    );
+    const { container } = render(
+      lastBoardOptions().squareRenderer!({ piece: null, square: "g4", children: null }),
+    );
+    expect(container.querySelector(".class-badge")).not.toHaveClass("class-badge--provisional");
+    expect(container.querySelector(".class-badge")).toHaveAttribute("title", "Blunder");
+  });
+});

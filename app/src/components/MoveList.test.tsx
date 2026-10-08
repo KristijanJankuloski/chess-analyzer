@@ -43,3 +43,16 @@ describe("MoveList", () => {
     expect(last).toHaveTextContent("…");
   });
 });
+
+describe("MoveList in a live game", () => {
+  const data = fromStored(foolsMate);
+
+  it("marks a class that may still change and says so to assistive technology", () => {
+    const rows = moveRows(data, [false, false, true, false]);
+    render(<MoveList rows={rows} selectedPly={0} onSelect={() => {}} />);
+    const provisional = screen.getByRole("button", { name: "g4, Blunder, provisional" });
+    expect(provisional.querySelector(".move__mark")).toHaveClass("move__mark--provisional");
+    const settled = screen.getByRole("button", { name: "f3, Book" });
+    expect(settled.querySelector(".move__mark")).not.toHaveClass("move__mark--provisional");
+  });
+});

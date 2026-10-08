@@ -3,8 +3,11 @@ import { formatAccuracy } from "../lib/format";
 import type { ReviewData } from "../lib/reviewData";
 import { classCounts } from "../lib/summary";
 
-/** Players, accuracy, opening and how many moves of each kind each side played. */
-export function SummaryPanel({ data }: { data: ReviewData }) {
+/**
+ * Players, accuracy, opening and how many moves of each kind each side played. `hideOpening`
+ * leaves the opening out, for a game that is still being played.
+ */
+export function SummaryPanel({ data, hideOpening = false }: { data: ReviewData; hideOpening?: boolean }) {
   const header = (key: string) => data.game.headers[key] ?? "?";
   const white = classCounts(data.moves, "white");
   const black = classCounts(data.moves, "black");
@@ -26,9 +29,11 @@ export function SummaryPanel({ data }: { data: ReviewData }) {
           </span>
         </div>
       </div>
-      <p className="summary__opening">
-        {data.opening ?? (data.complete ? "Opening not in the book" : "Naming the opening once the review is done…")}
-      </p>
+      {!hideOpening && (
+        <p className="summary__opening">
+          {data.opening ?? (data.complete ? "Opening not in the book" : "Naming the opening once the review is done…")}
+        </p>
+      )}
       {shown.length > 0 && (
         <table className="summary__counts">
           <tbody>

@@ -9,7 +9,10 @@ export interface BoardPanelProps {
   orientation: "white" | "black";
   lastMove?: SquarePair | null;
   bestArrow?: SquarePair | null;
-  badge?: { square: string; cls: MoveClass } | null;
+  /** A second arrow, in red: the move that should have been played instead of the last one. */
+  missArrow?: SquarePair | null;
+  /** `provisional` draws the badge as unsettled: the analysis behind it may still change. */
+  badge?: { square: string; cls: MoveClass; provisional?: boolean } | null;
   /**
    * Makes the board playable, by dragging or by clicking the piece and then its destination.
    * Return true to accept the move, false to refuse it (a dragged piece snaps back).
@@ -20,12 +23,14 @@ export interface BoardPanelProps {
 const LAST_MOVE_STYLE = { backgroundColor: "rgba(255, 213, 0, 0.42)" };
 const SELECTED_STYLE = { boxShadow: "inset 0 0 0 4px rgba(129, 182, 76, 0.95)" };
 const BEST_ARROW_COLOR = "rgba(129, 182, 76, 0.92)";
+const MISS_ARROW_COLOR = "rgba(202, 52, 49, 0.88)";
 
 export function BoardPanel({
   fen,
   orientation,
   lastMove,
   bestArrow,
+  missArrow,
   badge,
   onMove,
 }: BoardPanelProps) {
@@ -40,9 +45,13 @@ export function BoardPanel({
   }
   if (selected) squareStyles[selected] = { ...squareStyles[selected], ...SELECTED_STYLE };
 
-  const arrows: Arrow[] = bestArrow
-    ? [{ startSquare: bestArrow.from, endSquare: bestArrow.to, color: BEST_ARROW_COLOR }]
-    : [];
+  const arrows: Arrow[] = [];
+  if (missArrow) {
+    arrows.push({ startSquare: missArrow.from, endSquare: missArrow.to, color: MISS_ARROW_COLOR });
+  }
+  if (bestArrow) {
+    arrows.push({ startSquare: bestArrow.from, endSquare: bestArrow.to, color: BEST_ARROW_COLOR });
+  }
 
   const options: ChessboardOptions = {
     id: "review-board",
@@ -74,9 +83,13 @@ export function BoardPanel({
         {children}
         {badge && badge.square === square ? (
           <span
-            className="class-badge"
+            className={`class-badge${badge.provisional ? " class-badge--provisional" : ""}`}
             style={{ backgroundColor: CLASS_INFO[badge.cls].color }}
-            title={CLASS_INFO[badge.cls].label}
+            title={
+              badge.provisional
+                ? `${CLASS_INFO[badge.cls].label} (provisional)`
+                : CLASS_INFO[badge.cls].label
+            }
           >
             {CLASS_INFO[badge.cls].symbol}
           </span>
