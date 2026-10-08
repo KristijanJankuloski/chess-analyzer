@@ -5,8 +5,8 @@ position of a game; the app classifies each move (book, brilliant, great, best, 
 mistake, miss, blunder), scores both players' accuracy and names the opening. Everything runs on
 your machine, with no account and no network.
 
-**Status:** the engine core, a command-line reviewer and a desktop app for reviewing games exist.
-Recording a game by hand and LLM commentary come next. See [AGENTS.md](AGENTS.md) for the architecture and
+**Status:** the engine core, a command-line reviewer and a desktop app for reviewing and recording games exist.
+LLM commentary comes next. See [AGENTS.md](AGENTS.md) for the architecture and
 [docs/superpowers/specs](docs/superpowers/specs) for the design.
 
 ## Getting started
@@ -121,12 +121,13 @@ npm run tauri dev
 The first run compiles Tauri, which takes several minutes. Then:
 
 - **Games:** paste a PGN or open a PGN file and press Review. Recent games are listed; click one to reopen it.
+- **Record:** play a game over the board here, by clicking a piece and then its square or by dragging. The board enforces the rules (castling, en passant, promotion with a piece chooser) and ends the game at checkmate or a draw. Add the players' names, take moves back, and press "Review this game" to analyse it like any PGN.
 - **Settings:** the Stockfish path (empty means find it automatically), depth, lines, threads and hash. "Check engine" starts Stockfish to prove it works.
 - **Keyboard:** left and right arrows step through the moves, Home and End jump to the start and end.
 
 Games, settings and the analysis cache live in `%APPDATA%\com.chessanalyzer.app` on Windows.
 
-To see the interface in an ordinary browser without the Rust side, run `npm run dev` in `app` and open `http://localhost:1420/?demo`. Run the frontend tests with `npm test`. `npm run e2e:review` checks the real app end to end (see `app/e2e`; start the app with `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222` first).
+To see the interface in an ordinary browser without the Rust side, run `npm run dev` in `app` and open `http://localhost:1420/?demo`. Run the frontend tests with `npm test`. `npm run e2e:review` and `npm run e2e:record` check the real app end to end (see `app/e2e`; start the app with `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222` first).
 
 ## Tests
 
