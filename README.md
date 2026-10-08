@@ -83,7 +83,7 @@ Use `-` instead of a path to read from standard input.
 | `--json` | off | Print the full review as JSON instead of the text report. |
 | `--cache FILE` / `--no-cache` | `chess-analyzer-cache.db` | Analyses are cached in a SQLite file, so re-reviewing a game is nearly instant. |
 
-Depth, MultiPV, threads and hash must each be at least 1.
+Depth must be 1 to 60, MultiPV 1 to 10, threads 1 to 256 and hash 1 to 65536 MB; anything else is refused.
 
 ### Good to know
 
@@ -121,7 +121,7 @@ npm run tauri dev
 The first run compiles Tauri, which takes several minutes. Then:
 
 - **Games:** paste a PGN or open a PGN file and press Review. Recent games are listed; click one to reopen it.
-- **Record:** play a game over the board here, by clicking a piece and then its square or by dragging. The board enforces the rules (castling, en passant, promotion with a piece chooser) and ends the game at checkmate or a draw. Add the players' names, take moves back, and press "Review this game" to analyse it like any PGN.
+- **Record:** play a game over the board here, by clicking a piece and then its square or by dragging. The board enforces the rules (castling, en passant, promotion with a piece chooser) and ends the game at checkmate, stalemate or insufficient material. Repetitions and the fifty-move rule are left to you, because only a player claiming the draw ends a real game: pick the result yourself. Add the players' names, take moves back, and press "Review this game" to analyse it like any PGN.
 - **Settings:** the Stockfish path (empty means find it automatically), depth, lines, threads and hash. "Check engine" starts Stockfish to prove it works.
 - **Keyboard:** left and right arrows step through the moves, Home and End jump to the start and end.
 
