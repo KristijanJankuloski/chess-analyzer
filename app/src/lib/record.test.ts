@@ -6,9 +6,11 @@ import {
   gameOver,
   isPromotion,
   recordedGame,
+  statusText,
   takeBack,
   toReviewSource,
   tryMove,
+  trySan,
   turn,
 } from "./record";
 
@@ -171,5 +173,78 @@ describe("turning a recording into a game and a review request", () => {
     const unset = toReviewSource(play("e2e4"), {});
     if (unset.kind !== "moves") throw new Error("expected moves");
     expect(unset.headers.Result).toBe("*");
+  });
+});
+
+describe("entering a move as text", () => {
+  const moveOf = (state: RecordState, text: string) => {
+    const result = trySan(state, text);
+    if (!("state" in result)) throw new Error(`"${text}" was refused: ${result.error}`);
+    return result.state.uciMoves.at(-1);
+  };
+
+  it("accepts standard notation and records the move in UCI", () => {
+    expect(moveOf(emptyRecording, "e4")).toBe("e2e4");
+    expect(moveOf(emptyRecording, "Nf3")).toBe("g1f3");
+    expect(moveOf(play("e2e4", "e7e5"), "Bc4")).toBe("f1c4");
+  });
+
+  it("does not mind a check or annotation mark, spaces or the wrong case", () => {
+    expect(moveOf(emptyRecording, "  e4  ")).toBe("e2e4");
+    expect(moveOf(emptyRecording, "e4!?")).toBe("e2e4");
+    expect(moveOf(emptyRecording, "nf3")).toBe("g1f3");
+    expect(moveOf(play("e2e4", "e7e5", "g1f3", "b8c6"), "bb5")).toBe("f1b5");
+  });
+
+  it("reads a lowercase b as a pawn when that is legal", () => {
+    expect(moveOf(play("e2e4", "d7d5", "f1b5", "c7c6"), "bxc6")).toBe("b5c6");
+    expect(moveOf(play("a2a3", "a7a6"), "b4")).toBe("b2b4");
+  });
+
+  it("accepts castling written with letters or zeros", () => {
+    const ready = play("e2e4", "e7e5", "g1f3", "b8c6", "f1c4", "g8f6");
+    expect(moveOf(ready, "O-O")).toBe("e1g1");
+    expect(moveOf(ready, "0-0")).toBe("e1g1");
+    expect(moveOf(ready, "o-o")).toBe("e1g1");
+  });
+
+  it("accepts a capture, an en passant capture and a promotion", () => {
+    expect(moveOf(play("e2e4", "d7d5"), "exd5")).toBe("e4d5");
+    expect(moveOf(play("e2e4", "a7a6", "e4e5", "d7d5"), "exd6")).toBe("e5d6");
+    const promoting = play("h2h4", "g7g5", "h4g5", "g8f6", "g5g6", "a7a6", "g6g7", "a6a5");
+    expect(moveOf(promoting, "gxh8=Q")).toBe("g7h8q");
+    expect(moveOf(promoting, "g8=N")).toBe("g7g8n");
+  });
+
+  it("refuses an illegal move and says which one", () => {
+    expect(trySan(emptyRecording, "Nf6")).toEqual({ error: "Illegal move: Nf6" });
+    expect(trySan(emptyRecording, "e5")).toEqual({ error: "Illegal move: e5" });
+    expect(trySan(emptyRecording, "nonsense")).toEqual({ error: "Illegal move: nonsense" });
+  });
+
+  it("asks for a move when there is none", () => {
+    expect(trySan(emptyRecording, "   ")).toEqual({ error: "Type a move, such as Nf3." });
+  });
+
+  it("refuses a move once the game has ended on the board", () => {
+    const mated = play("f2f3", "e7e5", "g2g4", "d8h4");
+    expect(trySan(mated, "e4")).toEqual({ error: "The game is over." });
+  });
+
+  it("leaves the original state alone", () => {
+    const before = play("e2e4");
+    trySan(before, "e5");
+    expect(before.uciMoves).toEqual(["e2e4"]);
+  });
+});
+
+describe("describing the position", () => {
+  it("says whose move it is", () => {
+    expect(statusText(emptyRecording)).toBe("White to move");
+    expect(statusText(play("e2e4"))).toBe("Black to move");
+  });
+
+  it("says how a finished game ended", () => {
+    expect(statusText(play("f2f3", "e7e5", "g2g4", "d8h4"))).toBe("Checkmate: 0-1");
   });
 });
