@@ -1,0 +1,8 @@
+A vs B (0-1)
+opening: A00 Barnes Opening: Fool's Mate
+accuracy: white=39.9 black=100.0
+critical plies: [3]
+  1 f3       Book       loss=  8.5 best=e4
+  2 e5       Book       loss=  0.0 best=e5
+  3 g4       Blunder    loss= 44.4 best=Nc3
+  4 Qh4#     Book       loss=  0.0 best=Qh4#
