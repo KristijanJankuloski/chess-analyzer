@@ -79,6 +79,10 @@ PGN → Stockfish (every position) → move classification → critical moments 
 6. Send only those positions to the LLM. A 60-move game (~120 positions) should yield roughly 8-15 LLM calls, which keeps a small local model viable.
 7. Cache everything (analysis per ply, explanations) in SQLite.
 
+### Live mode
+
+For a game that is still being played (the user types in its moves), the same classifier runs over one persistent Stockfish that keeps searching the newest position until the next move arrives (`crates/core/src/live.rs`). Positions that were never analysed get a quick shallow pass first. A move's class is *provisional* while it is the newest move or rests on a shallow search, and the UI says so.
+
 ### Move classification
 
 Starting point (win-percentage points lost against the engine's best move, from the mover's perspective; defaults of `Thresholds` in `crates/core/src/classify.rs`, which is the single source of truth):
