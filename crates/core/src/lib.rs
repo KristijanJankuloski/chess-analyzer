@@ -4,3 +4,4 @@ pub mod classify;
 pub mod engine;
 pub mod eval;
 pub mod game;
+pub mod openings;
