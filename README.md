@@ -1,1 +1,120 @@
 # chess-analyzer
+
+A local game-review tool in the spirit of Chess.com's Game Review. Stockfish evaluates every
+position of a game; the app classifies each move (book, brilliant, great, best, good, inaccuracy,
+mistake, miss, blunder), scores both players' accuracy and names the opening. Everything runs on
+your machine, with no account and no network.
+
+**Status:** the engine core and a command-line reviewer exist. The desktop app (Tauri + React) and
+LLM commentary come next. See [AGENTS.md](AGENTS.md) for the architecture and
+[docs/superpowers/specs](docs/superpowers/specs) for the design.
+
+## Getting started
+
+You need [Rust](https://rustup.rs) (stable, 1.88 or newer) and a Stockfish binary. Run everything
+from the repository root.
+
+### 1. Get Stockfish
+
+The setup script downloads Stockfish 19 into `engines/` (about 100 MB, ignored by git):
+
+| Platform | Command |
+|---|---|
+| Windows (PowerShell) | `powershell -ExecutionPolicy Bypass -File scripts/setup-stockfish.ps1` |
+| Linux / macOS | `bash scripts/setup-stockfish.sh` |
+
+It finishes with `Installed id name Stockfish 19 at ...`. The Linux/macOS script has not been run
+on those platforms yet; if it fails, download Stockfish yourself and use the next option.
+
+Already have Stockfish? Skip the script and either set the `STOCKFISH_PATH` environment variable
+or pass `--engine <path>` on every run.
+
+### 2. Review a game
+
+A sample game is included, so you can try it straight away:
+
+```
+cargo run -p chess-analyzer-cli -- review data/fixtures/opera_game.pgn --depth 12
+```
+
+The first run compiles the project, which takes a few minutes. After that, this review takes a few
+seconds. You should see something like:
+
+```
+Paul Morphy vs Duke of Brunswick and Count Isouard  (1-0)
+Opening: C41 Philidor Defense
+Engine: Stockfish 19 (depth 12, 3 lines)
+Accuracy: White 99.0 | Black 85.4
+
+Moves
+  1. e4          Book           +0.30
+  1... e5        Book           +0.41
+  ...
+
+Critical moments
+  4... Bxf3      Inaccuracy  +0.81 -> +1.89, best was Nd7 (lost 9.3% win chance)
+  6... Nf6       Mistake     +1.24 -> +2.52, best was Qf6 (lost 10.4% win chance)
+  7. Qb3         Great       +2.52 -> +2.52 (lost 0.0% win chance)
+  ...
+```
+
+Evaluations are from White's point of view (`+` favours White). `M3` / `-M3` means a forced mate in
+3 for White / Black, and `1-0 #` / `0-1 #` marks the checkmate itself.
+
+To review your own game, export it as a PGN file (both Chess.com and Lichess offer a PGN download)
+and point the command at it:
+
+```
+cargo run -p chess-analyzer-cli -- review path/to/your_game.pgn
+```
+
+Use `-` instead of a path to read from standard input.
+
+### Options
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--depth N` | 20 | Search depth per position. Higher is stronger and slower; `12` is a quick look. |
+| `--multipv N` | 3 | Lines Stockfish reports per position. Needed for "Great" moves; use at least 2. |
+| `--threads N` | 1 | CPU threads for Stockfish. |
+| `--hash MB` | 256 | Stockfish hash memory in MB. |
+| `--game N` | 1 | Which game to review when the PGN file contains several. |
+| `--engine PATH` | auto | Stockfish executable. Otherwise `STOCKFISH_PATH`, then `engines/stockfish`. |
+| `--json` | off | Print the full review as JSON instead of the text report. |
+| `--cache FILE` / `--no-cache` | `chess-analyzer-cache.db` | Analyses are cached in a SQLite file, so re-reviewing a game is nearly instant. |
+
+Depth, MultiPV, threads and hash must each be at least 1.
+
+### Good to know
+
+- Only standard chess is supported. PGNs with a `[Variant ...]` tag such as Chess960 or Antichess
+  are rejected with an error.
+- Variations and comments in a PGN are ignored; only the main line is reviewed.
+- The cache file is created in the directory you run the command from.
+- Accuracy is the plain average of each move's accuracy, using Lichess's published per-move
+  formula. The numbers will not match Chess.com's or Lichess's own exactly.
+- Move classes use starting thresholds that still need calibrating on real games (see
+  [AGENTS.md](AGENTS.md)), so treat a "Mistake" as a hint rather than a verdict.
+
+### Troubleshooting
+
+| Message | Fix |
+|---|---|
+| `Stockfish was not found` | Run the setup script from the repository root, or set `STOCKFISH_PATH` / pass `--engine`. |
+| `no game found in the PGN` | The file has no moves. Check that it is a PGN export of a game. |
+| `illegal or unreadable move "..." at ply N` | The PGN has a move that is not legal at that point (or a typo). `N` counts half-moves from the start. |
+| `unsupported variant` | The game is not standard chess. |
+| `the engine did not answer within ...` | The position took longer than 120 s at that depth. Lower `--depth`. |
+
+## Tests
+
+```
+cargo test
+```
+
+Integration tests that need Stockfish print `SKIPPED` and pass when no binary is found.
+
+## Licenses
+
+This project is MIT licensed. Stockfish (GPLv3) is downloaded separately and run as its own
+process. The opening names come from lichess-org/chess-openings (CC0).

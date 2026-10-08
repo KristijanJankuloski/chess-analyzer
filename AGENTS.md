@@ -81,14 +81,17 @@ PGN → Stockfish (every position) → move classification → critical moments 
 
 ### Move classification
 
-Starting point (evaluation loss in pawns, from the mover's perspective):
+Starting point (win-percentage points lost against the engine's best move, from the mover's perspective; defaults of `Thresholds` in `crates/core/src/classify.rs`, which is the single source of truth):
 
-| Loss | Class |
+| Win chance lost | Class |
 |---|---|
-| 0.00 - 0.30 | Good |
-| 0.30 - 0.80 | Inaccuracy |
-| 0.80 - 2.00 | Mistake |
-| > 2.00 | Blunder |
+| ≤ 0.5 (or the engine's move) | Best |
+| ≤ 5 | Good |
+| ≤ 10 | Inaccuracy |
+| ≤ 20 | Mistake |
+| > 20 | Blunder |
+
+Brilliant, Great, Miss and Book use extra rules on top of these bands (see the doc comments in `classify.rs`). A known opening move stays Book unless it loses more than `book_max_loss` (10 points), so a named line such as the Fool's Mate cannot hide a blunder. Evaluations are `Cp`, `Mate` or `Checkmate` (a finished game), always from White's point of view.
 
 **These thresholds are a starting point, not final.** Calibrate them (e.g. consider win-probability-based loss rather than raw centipawns, and account for already-decided positions). Keep thresholds in one configurable place.
 

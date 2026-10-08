@@ -1,0 +1,6 @@
+# Keep scripts and data files LF on every platform (a CRLF shell script fails on Linux).
+*.sh   text eol=lf
+*.tsv  text eol=lf
+*.json text eol=lf
+*.pgn  text eol=lf
+*.txt  text eol=lf

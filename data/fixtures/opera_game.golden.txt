@@ -1,0 +1,37 @@
+Paul Morphy vs Duke of Brunswick and Count Isouard (1-0)
+opening: C41 Philidor Defense
+accuracy: white=98.4 black=86.4
+critical plies: [8, 12, 13, 18, 19, 20, 21, 27, 30]
+  1 e4       Book       loss=  0.0 best=e4
+  2 e5       Book       loss=  0.0 best=e5
+  3 Nf3      Book       loss=  0.0 best=Nf3
+  4 d6       Book       loss=  1.6 best=Nf6
+  5 d4       Book       loss=  0.0 best=d4
+  6 Bg4      Book       loss=  4.6 best=Nf6
+  7 dxe5     Book       loss=  0.5 best=Be3
+  8 Bxf3     Mistake    loss= 10.1 best=Nc6
+  9 Qxf3     Best       loss=  0.0 best=Qxf3
+ 10 dxe5     Best       loss=  0.0 best=dxe5
+ 11 Bc4      Good       loss=  2.1 best=Qb3
+ 12 Nf6      Mistake    loss= 11.4 best=Qf6
+ 13 Qb3      Great      loss=  0.0 best=Qb3
+ 14 Qe7      Good       loss=  3.2 best=Bc5
+ 15 Nc3      Good       loss=  3.7 best=Qxb7
+ 16 c6       Best       loss=  0.0 best=c6
+ 17 Bg5      Best       loss=  0.0 best=Bg5
+ 18 b5       Mistake    loss= 13.4 best=Kd8
+ 19 Nxb5     Great      loss=  0.0 best=Nxb5
+ 20 cxb5     Inaccuracy loss=  7.5 best=Qb4+
+ 21 Bxb5+    Great      loss=  0.0 best=Bxb5+
+ 22 Nbd7     Good       loss=  2.7 best=Kd8
+ 23 O-O-O    Best       loss=  0.0 best=O-O-O
+ 24 Rd8      Good       loss=  1.5 best=Qc5
+ 25 Rxd7     Best       loss=  0.0 best=Rxd7
+ 26 Rxd7     Best       loss=  0.4 best=Nxd7
+ 27 Rd1      Great      loss=  0.0 best=Rd1
+ 28 Qe6      Good       loss=  1.6 best=Qd6
+ 29 Bxd7+    Best       loss=  0.0 best=Bxd7+
+ 30 Nxd7     Great      loss=  0.0 best=Nxd7
+ 31 Qb8+     Best       loss=  0.0 best=Qb8+
+ 32 Nxb8     Best       loss=  0.0 best=Nxb8
+ 33 Rd8#     Best       loss=  0.0 best=Rd8#
