@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { Chess, type Square } from "chess.js";
+import { useEffect, useMemo, useState } from "react";
 import { Chessboard, type Arrow, type ChessboardOptions } from "react-chessboard";
 import type { MoveClass } from "../generated/MoveClass";
 import type { SquarePair } from "../lib/board";
@@ -22,8 +23,28 @@ export interface BoardPanelProps {
 
 const LAST_MOVE_STYLE = { backgroundColor: "rgba(255, 213, 0, 0.42)" };
 const SELECTED_STYLE = { boxShadow: "inset 0 0 0 4px rgba(129, 182, 76, 0.95)" };
+// A dot on an empty square the piece can go to, a ring around a square it can capture on.
+const MOVE_TARGET_STYLE = {
+  backgroundImage: "radial-gradient(circle, rgba(20, 85, 30, 0.5) 0 19%, transparent 21%)",
+};
+const CAPTURE_TARGET_STYLE = {
+  backgroundImage: "radial-gradient(circle, transparent 0 62%, rgba(20, 85, 30, 0.5) 64%)",
+};
 const BEST_ARROW_COLOR = "rgba(129, 182, 76, 0.92)";
 const MISS_ARROW_COLOR = "rgba(202, 52, 49, 0.88)";
+
+/** Where the piece on `square` can legally go, each with whether the move captures. Empty if it has no moves. */
+function legalTargets(fen: string, square: string): Map<string, boolean> {
+  const targets = new Map<string, boolean>();
+  try {
+    for (const move of new Chess(fen).moves({ square: square as Square, verbose: true })) {
+      targets.set(move.to, move.isCapture() || move.isEnPassant());
+    }
+  } catch {
+    // Not a position chess.js accepts: there is nothing to suggest.
+  }
+  return targets;
+}
 
 export function BoardPanel({
   fen,
@@ -37,11 +58,24 @@ export function BoardPanel({
   const [selected, setSelected] = useState<string | null>(null);
   // A new position means the old selection no longer means anything.
   useEffect(() => setSelected(null), [fen]);
+  // The piece being dragged; it gets the same move hints as a selected one.
+  const [dragging, setDragging] = useState<string | null>(null);
+  const hintFrom = onMove ? (dragging ?? selected) : null;
+  const targets = useMemo(
+    () => (hintFrom ? legalTargets(fen, hintFrom) : new Map<string, boolean>()),
+    [fen, hintFrom],
+  );
 
   const squareStyles: Record<string, React.CSSProperties> = {};
   if (lastMove) {
     squareStyles[lastMove.from] = LAST_MOVE_STYLE;
     squareStyles[lastMove.to] = LAST_MOVE_STYLE;
+  }
+  for (const [square, captures] of targets) {
+    squareStyles[square] = {
+      ...squareStyles[square],
+      ...(captures ? CAPTURE_TARGET_STYLE : MOVE_TARGET_STYLE),
+    };
   }
   if (selected) squareStyles[selected] = { ...squareStyles[selected], ...SELECTED_STYLE };
 
@@ -65,7 +99,10 @@ export function BoardPanel({
     animationDurationInMs: 150,
     darkSquareStyle: { backgroundColor: "#b58863" },
     lightSquareStyle: { backgroundColor: "#f0d9b5" },
+    onPieceDrag: ({ square }) => setDragging(square),
+    onPieceDragCancel: () => setDragging(null),
     onPieceDrop: ({ sourceSquare, targetSquare }) => {
+      setDragging(null);
       setSelected(null);
       return onMove && targetSquare ? onMove(sourceSquare, targetSquare) : false;
     },
@@ -78,8 +115,9 @@ export function BoardPanel({
       // Either nothing was selected, the move was refused, or the same square was clicked again.
       setSelected(piece && square !== selected ? square : null);
     },
+    // react-chessboard skips `squareStyles` when it is given a renderer, so apply them here.
     squareRenderer: ({ square, children }) => (
-      <div className="square" data-square={square}>
+      <div className="square" data-square={square} style={squareStyles[square]}>
         {children}
         {badge && badge.square === square ? (
           <span
