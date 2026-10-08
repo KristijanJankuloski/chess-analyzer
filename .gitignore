@@ -147,3 +147,10 @@ vite.config.ts.timestamp-*
 
 # Turbo Repo
 .turbo
+
+# Rust
+/target
+
+# Local Stockfish binary (scripts/setup-stockfish) and the CLI's analysis cache
+/engines/
+chess-analyzer-cache.db
