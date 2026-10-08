@@ -1,0 +1,20 @@
+[package]
+name = "chess-analyzer-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version = "1.90"
+
+[lib]
+name = "chess_analyzer_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.7.1", features = [] }
+
+[dependencies]
+chess-analyzer-core = { path = "../../crates/core" }
+tauri = { version = "2.12.1", features = [] }
+tauri-plugin-dialog = "2.8.1"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"

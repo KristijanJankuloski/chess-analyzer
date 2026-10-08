@@ -1,6 +1,9 @@
 [workspace]
 resolver = "3"
-members = ["crates/core", "crates/cli"]
+members = ["crates/core", "crates/cli", "app/src-tauri"]
+# `cargo test` at the root covers the library and the CLI; the desktop shell needs the
+# Tauri toolchain (and WebView libraries on Linux), so it is built and tested explicitly.
+default-members = ["crates/core", "crates/cli"]
 
 [workspace.package]
 edition = "2024"
