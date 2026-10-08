@@ -102,6 +102,23 @@ describe("RecordScreen", () => {
     expect(screen.getByLabelText("Result")).toHaveValue("0-1");
   });
 
+  it("says why a game was drawn", () => {
+    setup();
+    // Sam Loyd's ten-move stalemate.
+    playAll(
+      "e2e3", "a7a5", "d1h5", "a8a6", "h5a5", "h7h5", "h2h4", "a6h6", "a5c7", "f7f6",
+      "c7d7", "e8f7", "d7b7", "d8d3", "b7b8", "d3h7", "b8c8", "f7g6", "c8e6",
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("Draw by stalemate");
+    expect(screen.getByLabelText("Result")).toHaveValue("1/2-1/2");
+  });
+
+  it("keeps accepting moves after a position has repeated three times", () => {
+    setup();
+    playAll("g1f3", "g8f6", "f3g1", "f6g8", "g1f3", "g8f6", "f3g1", "f6g8", "e2e4");
+    expect(screen.getByRole("status")).toHaveTextContent("Black to move");
+  });
+
   it("sends the moves, names and result to be reviewed", async () => {
     const { user, onReview } = setup();
     await user.type(screen.getByLabelText("White"), "Me");

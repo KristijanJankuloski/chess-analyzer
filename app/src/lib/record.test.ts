@@ -102,18 +102,27 @@ describe("taking moves back", () => {
 
 describe("the end of a game", () => {
   it("is ongoing at the start", () => {
-    expect(gameOver(emptyRecording)).toEqual({ over: false, result: "*" });
+    expect(gameOver(emptyRecording)).toEqual({ over: false, result: "*", reason: null });
   });
 
   it("recognises checkmate and refuses further moves", () => {
     const mate = play("f2f3", "e7e5", "g2g4", "d8h4");
-    expect(gameOver(mate)).toEqual({ over: true, result: "0-1" });
+    expect(gameOver(mate)).toEqual({ over: true, result: "0-1", reason: "checkmate" });
     expect(tryMove(mate, "a2", "a3")).toBeNull();
   });
 
   it("recognises White checkmating", () => {
     const mate = play("e2e4", "e7e5", "d1h5", "b8c6", "f1c4", "g8f6", "h5f7");
-    expect(gameOver(mate)).toEqual({ over: true, result: "1-0" });
+    expect(gameOver(mate)).toEqual({ over: true, result: "1-0", reason: "checkmate" });
+  });
+
+  it("does not end the game on a repeated position nobody has claimed", () => {
+    // Knights out and back twice: the starting position has now occurred three times.
+    const repeated = play(
+      "g1f3", "g8f6", "f3g1", "f6g8", "g1f3", "g8f6", "f3g1", "f6g8",
+    );
+    expect(gameOver(repeated)).toEqual({ over: false, result: "*", reason: null });
+    expect(tryMove(repeated, "e2", "e4")).not.toBeNull();
   });
 
   it("recognises a draw by stalemate", () => {
@@ -122,7 +131,7 @@ describe("the end of a game", () => {
       "e2e3", "a7a5", "d1h5", "a8a6", "h5a5", "h7h5", "h2h4", "a6h6", "a5c7", "f7f6",
       "c7d7", "e8f7", "d7b7", "d8d3", "b7b8", "d3h7", "b8c8", "f7g6", "c8e6",
     );
-    expect(gameOver(stalemate)).toEqual({ over: true, result: "1/2-1/2" });
+    expect(gameOver(stalemate)).toEqual({ over: true, result: "1/2-1/2", reason: "stalemate" });
   });
 });
 

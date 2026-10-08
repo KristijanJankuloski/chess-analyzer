@@ -41,7 +41,7 @@ const RESULTS: { value: RecordResult; label: string }[] = [
 function statusText(state: RecordState): string {
   const ended = gameOver(state);
   if (!ended.over) return `${turn(state) === "white" ? "White" : "Black"} to move`;
-  return ended.result === "1/2-1/2" ? "Draw" : `Checkmate: ${ended.result}`;
+  return ended.reason === "checkmate" ? `Checkmate: ${ended.result}` : `Draw by ${ended.reason}`;
 }
 
 /** Enter a game move by move on the board, then send it off to be reviewed. */

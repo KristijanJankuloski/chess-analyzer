@@ -63,7 +63,7 @@ export function tryMove(
   promotion?: string,
 ): RecordState | null {
   const chess = replay(state);
-  if (chess.isGameOver()) return null;
+  if (endReason(chess)) return null;
   if (isPromotion(state, from, to) && !promotion) return null;
   try {
     const move = chess.move({ from, to, promotion });
@@ -79,15 +79,34 @@ export function takeBack(state: RecordState): RecordState {
     : { uciMoves: state.uciMoves.slice(0, -1) };
 }
 
-/** Whether the game has ended on the board, and the result if so. */
-export function gameOver(state: RecordState): { over: boolean; result: RecordResult } {
+export type EndReason = "checkmate" | "stalemate" | "insufficient material";
+
+/**
+ * Why the game has ended on the board, if it has. Threefold repetition and the fifty-move rule
+ * deliberately do not count: they end a game only when a player claims the draw, which a record
+ * of an over-the-board game cannot know, so the user keeps entering moves and picks the result.
+ */
+function endReason(chess: Chess): EndReason | null {
+  if (chess.isCheckmate()) return "checkmate";
+  if (chess.isStalemate()) return "stalemate";
+  if (chess.isInsufficientMaterial()) return "insufficient material";
+  return null;
+}
+
+/** Whether the game has ended on the board, how, and the result if so. */
+export function gameOver(state: RecordState): {
+  over: boolean;
+  result: RecordResult;
+  reason: EndReason | null;
+} {
   const chess = replay(state);
-  if (chess.isCheckmate()) {
+  const reason = endReason(chess);
+  if (reason === "checkmate") {
     // The side to move has been mated.
-    return { over: true, result: chess.turn() === "w" ? "0-1" : "1-0" };
+    return { over: true, result: chess.turn() === "w" ? "0-1" : "1-0", reason };
   }
-  if (chess.isGameOver()) return { over: true, result: "1/2-1/2" };
-  return { over: false, result: "*" };
+  if (reason) return { over: true, result: "1/2-1/2", reason };
+  return { over: false, result: "*", reason: null };
 }
 
 function pgnDate(now: Date): string {
