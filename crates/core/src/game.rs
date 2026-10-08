@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 use std::io::Cursor;
 use std::ops::ControlFlow;
+use std::path::Path;
 
 use pgn_reader::{RawTag, Reader, SanPlus, Visitor};
 use serde::{Deserialize, Serialize};
@@ -11,6 +12,7 @@ use shakmaty::san::SanPlus as ShakSanPlus;
 use shakmaty::uci::UciMove;
 use shakmaty::{CastlingMode, Chess, EnPassantMode};
 use thiserror::Error;
+use ts_rs::TS;
 
 use crate::eval::Side;
 
@@ -28,7 +30,8 @@ pub enum GameError {
     IllegalMove { ply: usize, mv: String },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct GameMove {
     pub san: String,
     pub uci: String,
@@ -36,7 +39,8 @@ pub struct GameMove {
 
 /// A single linear game. `positions[i]` is the FEN before `moves[i]`;
 /// the last entry is the final position, so `positions.len() == moves.len() + 1`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct Game {
     pub headers: BTreeMap<String, String>,
     pub positions: Vec<String>,
@@ -95,6 +99,29 @@ pub fn decode_pgn_bytes(bytes: &[u8]) -> String {
     }
 }
 
+/// The largest PGN file the app will open. A game database can run to gigabytes; reviewing one
+/// game at a time is the job, and reading all of that into memory would freeze the window.
+pub const MAX_PGN_BYTES: u64 = 64 * 1024 * 1024;
+
+/// Reads a PGN file, refusing one larger than `max_bytes` without reading it, and decodes it
+/// (UTF-8, or Latin-1 for older exports).
+pub fn read_pgn_file(path: &Path, max_bytes: u64) -> Result<String, GameError> {
+    let shown = path.display();
+    let size = std::fs::metadata(path)
+        .map_err(|e| GameError::Read(format!("could not read {shown}: {e}")))?
+        .len();
+    if size > max_bytes {
+        return Err(GameError::Read(format!(
+            "{shown} is too large ({} MB; the limit is {} MB)",
+            size / (1024 * 1024),
+            max_bytes / (1024 * 1024)
+        )));
+    }
+    let bytes =
+        std::fs::read(path).map_err(|e| GameError::Read(format!("could not read {shown}: {e}")))?;
+    Ok(decode_pgn_bytes(&bytes))
+}
+
 /// Parses the games in the PGN text. Variations and comments are ignored. Games without any
 /// moves (including whatever the lenient reader makes of non-PGN text) are skipped, so a
 /// successful result always holds at least one game with a move.
@@ -113,6 +140,41 @@ pub fn parse_pgn(text: &str) -> Result<Vec<Game>, GameError> {
         return Err(GameError::Empty);
     }
     Ok(games)
+}
+
+/// A one-line description of a game inside a PGN, for choosing among several.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct PgnGameInfo {
+    /// Position in the list `parse_pgn` returns.
+    pub index: usize,
+    pub white: String,
+    pub black: String,
+    pub result: String,
+    pub event: String,
+    pub date: String,
+    /// Number of half-moves.
+    pub moves: usize,
+}
+
+/// Describes every game `parse_pgn` would return, in the same order.
+pub fn describe_pgn(text: &str) -> Result<Vec<PgnGameInfo>, GameError> {
+    Ok(parse_pgn(text)?
+        .iter()
+        .enumerate()
+        .map(|(index, game)| {
+            let header = |key: &str| game.headers.get(key).cloned().unwrap_or_else(|| "?".into());
+            PgnGameInfo {
+                index,
+                white: header("White"),
+                black: header("Black"),
+                result: header("Result"),
+                event: header("Event"),
+                date: header("Date"),
+                moves: game.moves.len(),
+            }
+        })
+        .collect())
 }
 
 fn parse_fen(fen: &str) -> Result<Chess, GameError> {
@@ -423,6 +485,59 @@ mod tests {
         assert_eq!(decode_pgn_bytes("Zoë Müller".as_bytes()), "Zoë Müller");
         assert_eq!(decode_pgn_bytes(b"Mu\xf1oz"), "Muñoz");
     }
+    fn temp_file(name: &str, bytes: &[u8]) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("chess-analyzer-pgn-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(name);
+        std::fs::write(&path, bytes).unwrap();
+        path
+    }
+
+    #[test]
+    fn a_pgn_file_is_read_and_decoded() {
+        let path = temp_file("latin1.pgn", b"[White \"Mu\xf1oz\"]\n\n1. e4 *\n");
+        let text = read_pgn_file(&path, MAX_PGN_BYTES).unwrap();
+        assert!(text.contains("Mu\u{f1}oz"), "{text}");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn a_pgn_file_over_the_size_limit_is_refused_before_it_is_read() {
+        let path = temp_file("big.pgn", &[b'x'; 100]);
+        let err = read_pgn_file(&path, 10).unwrap_err();
+        let GameError::Read(message) = err else {
+            panic!("unexpected {err:?}")
+        };
+        assert!(message.contains("too large"), "{message}");
+        assert!(message.contains("big.pgn"), "{message}");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn a_pgn_file_exactly_at_the_limit_is_read() {
+        let path = temp_file("exact.pgn", b"1. e4 *");
+        assert!(read_pgn_file(&path, 7).is_ok());
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn a_missing_file_or_a_folder_is_reported_with_its_path() {
+        let missing = std::env::temp_dir().join("chess-analyzer-no-such-file.pgn");
+        let GameError::Read(message) = read_pgn_file(&missing, MAX_PGN_BYTES).unwrap_err() else {
+            panic!("expected a read error")
+        };
+        assert!(
+            message.contains("chess-analyzer-no-such-file.pgn"),
+            "{message}"
+        );
+
+        let folder = std::env::temp_dir();
+        assert!(matches!(
+            read_pgn_file(&folder, MAX_PGN_BYTES),
+            Err(GameError::Read(_))
+        ));
+    }
+
     #[test]
     fn builds_a_game_from_uci_moves() {
         let moves: Vec<String> = ["e2e4", "e7e5", "g1f3"]
@@ -448,5 +563,33 @@ mod tests {
                 mv: "e2e5".into()
             }
         );
+    }
+
+    #[test]
+    fn describing_a_pgn_lists_its_games_in_review_order() {
+        let pgn = "[White \"A\"]\n[Black \"B\"]\n[Event \"Club\"]\n[Date \"2024.01.02\"]\n[Result \"1-0\"]\n\n1. e4 e5 2. Nf3 1-0\n\n[Event \"Empty\"]\n\n*\n\n1. d4 d5 *\n";
+        let infos = describe_pgn(pgn).unwrap();
+        assert_eq!(
+            infos.len(),
+            2,
+            "the move-less game is skipped, as in parse_pgn"
+        );
+        assert_eq!(
+            infos[0],
+            PgnGameInfo {
+                index: 0,
+                white: "A".into(),
+                black: "B".into(),
+                result: "1-0".into(),
+                event: "Club".into(),
+                date: "2024.01.02".into(),
+                moves: 3,
+            }
+        );
+        assert_eq!(
+            (infos[1].index, infos[1].white.as_str(), infos[1].moves),
+            (1, "?", 2)
+        );
+        assert_eq!(describe_pgn("nonsense"), Err(GameError::Empty));
     }
 }

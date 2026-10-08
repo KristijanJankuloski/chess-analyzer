@@ -3,10 +3,12 @@
 //! Win percentages are from the mover's point of view, in 0..=100.
 
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 use crate::eval::{Eval, Side};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum MoveClass {
     Book,

@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use ts_rs::TS;
 
 use crate::eval::{Eval, Side, UciScore};
 
@@ -32,7 +33,8 @@ pub enum EngineError {
 }
 
 /// Search limits for one analysis.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct Limits {
     pub depth: u32,
     pub multipv: u32,
@@ -141,8 +143,30 @@ pub fn parse_info_line(line: &str, stm: Side) -> Option<AnalysisLine> {
     .filter(|l| !l.pv.is_empty())
 }
 
-/// Finds a Stockfish executable: the explicit path, then `STOCKFISH_PATH`, then
-/// `engines/stockfish[.exe]` in the current directory or any parent.
+fn engine_file_name() -> &'static str {
+    if cfg!(windows) {
+        "stockfish.exe"
+    } else {
+        "stockfish"
+    }
+}
+
+/// Looks for `engines/<name>` in `start` and every parent directory.
+fn find_in_engines_dir(start: &Path, name: &str) -> Option<PathBuf> {
+    let mut dir = Some(start);
+    while let Some(d) = dir {
+        let candidate = d.join("engines").join(name);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+        dir = d.parent();
+    }
+    None
+}
+
+/// Finds a Stockfish executable: the explicit path, then `STOCKFISH_PATH`, then one next to
+/// the running program (where a bundled copy sits), then `engines/stockfish[.exe]` in the
+/// program's directory or any parent, and finally in the current directory or any parent.
 pub fn locate_stockfish(explicit: Option<&Path>) -> Option<PathBuf> {
     if let Some(path) = explicit {
         return path.is_file().then(|| path.to_path_buf());
@@ -153,20 +177,22 @@ pub fn locate_stockfish(explicit: Option<&Path>) -> Option<PathBuf> {
             return Some(path);
         }
     }
-    let name = if cfg!(windows) {
-        "stockfish.exe"
-    } else {
-        "stockfish"
-    };
-    let mut dir = std::env::current_dir().ok();
-    while let Some(d) = dir {
-        let candidate = d.join("engines").join(name);
-        if candidate.is_file() {
-            return Some(candidate);
+    let name = engine_file_name();
+    if let Some(dir) = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(Path::to_path_buf))
+    {
+        let beside = dir.join(name);
+        if beside.is_file() {
+            return Some(beside);
         }
-        dir = d.parent().map(Path::to_path_buf);
+        if let Some(found) = find_in_engines_dir(&dir, name) {
+            return Some(found);
+        }
     }
-    None
+    std::env::current_dir()
+        .ok()
+        .and_then(|cwd| find_in_engines_dir(&cwd, name))
 }
 
 /// How long the engine gets to start and answer the UCI handshake.
@@ -192,6 +218,19 @@ impl EngineConfig {
     }
 }
 
+/// Stockfish is a console program. The desktop app in a release build has no console of its
+/// own, so on Windows it would open a visible console window for every engine it starts, and
+/// closing that window would kill the engine mid-review.
+#[cfg(windows)]
+fn hide_console_window(command: &mut Command) {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    command.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+fn hide_console_window(_command: &mut Command) {}
+
 /// A running Stockfish process.
 pub struct UciEngine {
     config: EngineConfig,
@@ -206,10 +245,13 @@ impl UciEngine {
         if !config.path.is_file() {
             return Err(EngineError::NotFound);
         }
-        let mut child = Command::new(&config.path)
+        let mut command = Command::new(&config.path);
+        command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::null());
+        hide_console_window(&mut command);
+        let mut child = command
             .spawn()
             .map_err(|e| EngineError::Spawn(e.to_string()))?;
         let stdin = child
@@ -470,5 +512,24 @@ mod tests {
         assert_eq!(a.analyze("fen", &Limits::default()).unwrap().lines[0], line);
         assert!(a.analyze("fen", &Limits::default()).is_err());
         assert_eq!(a.calls, 2);
+    }
+
+    #[test]
+    fn the_engines_directory_is_found_from_a_nested_directory_but_not_from_elsewhere() {
+        let root =
+            std::env::temp_dir().join(format!("chess-analyzer-locate-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let nested = root.join("project").join("target").join("debug");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::create_dir_all(root.join("project").join("engines")).unwrap();
+        let name = engine_file_name();
+        let engine = root.join("project").join("engines").join(name);
+        std::fs::write(&engine, b"").unwrap();
+        let elsewhere = root.join("other");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+
+        assert_eq!(find_in_engines_dir(&nested, name), Some(engine));
+        assert_eq!(find_in_engines_dir(&elsewhere, name), None);
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

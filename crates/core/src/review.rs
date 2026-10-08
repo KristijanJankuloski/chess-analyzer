@@ -8,6 +8,7 @@ use shakmaty::san::SanPlus;
 use shakmaty::uci::UciMove;
 use shakmaty::{Chess, Color, Position, Role};
 use thiserror::Error;
+use ts_rs::TS;
 
 use crate::classify::{MoveClass, MoveContext, Thresholds, classify};
 use crate::engine::{AnalysisLine, Analyzer, EngineError, Limits, PositionAnalysis};
@@ -38,7 +39,8 @@ pub struct Progress {
     pub total: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct MoveReview {
     /// 1-based ply number.
     pub ply: usize,
@@ -63,13 +65,15 @@ pub struct MoveReview {
     pub critical: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct Accuracy {
     pub white: Option<f64>,
     pub black: Option<f64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct Review {
     pub headers: BTreeMap<String, String>,
     pub opening: Option<Opening>,
@@ -136,13 +140,121 @@ fn terminal_analysis(pos: &Chess) -> Option<PositionAnalysis> {
     })
 }
 
-pub fn review_game(
+/// What `review_game_streaming` reports while it works.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ReviewEvent {
+    /// Position `index` (0 = the start) has been analysed; `eval` is its best line.
+    Analysed {
+        index: usize,
+        total: usize,
+        eval: Eval,
+    },
+    /// Move `ply` is classified. Sent as soon as the position after it has been analysed.
+    Move(MoveReview),
+}
+
+/// The unbroken run of plies whose resulting position is a known opening position,
+/// and the deepest named opening along it.
+fn book_prefix(game: &Game, book: &OpeningBook) -> (usize, Option<Opening>) {
+    let mut book_plies = 0;
+    let mut opening = None;
+    for ply in 1..=game.moves.len() {
+        if !book.is_book(&game.positions[ply]) {
+            break;
+        }
+        book_plies = ply;
+        if let Some(named) = book.name_of(&game.positions[ply]) {
+            opening = Some(named.clone());
+        }
+    }
+    (book_plies, opening)
+}
+
+/// Classifies move `i` (0-based) once the analyses of positions `i` and `i + 1` exist.
+fn review_move(
+    i: usize,
+    game: &Game,
+    analyses: &[PositionAnalysis],
+    book_plies: usize,
+    prev_opponent_class: Option<MoveClass>,
+    thresholds: &Thresholds,
+) -> MoveReview {
+    let before = game.position(i);
+    let after = game.position(i + 1);
+    let mover = Side::from(before.turn());
+    let played = &game.moves[i];
+    let lines = &analyses[i].lines;
+    let best = &lines[0];
+
+    // A move that ends the game is scored by the game's result, not by the engine's
+    // "mate in 1" for the position before it; otherwise prefer the engine line for the
+    // played move (same search as `best`), falling back to the next position's best line.
+    let next_best = analyses[i + 1].lines[0].eval;
+    let eval_after = if terminal_analysis(&after).is_some() {
+        next_best
+    } else {
+        lines
+            .iter()
+            .find(|l| l.pv.first() == Some(&played.uci))
+            .map_or(next_best, |l| l.eval)
+    };
+
+    let material_swing = {
+        let start = balance(&before, before.turn());
+        let reply = analyses[i + 1].lines[0].pv.first();
+        let settled = reply
+            .and_then(|r| apply_uci(&after, r))
+            .unwrap_or_else(|| after.clone());
+        balance(&settled, before.turn()) - start
+    };
+
+    let ctx = MoveContext {
+        mover,
+        played_uci: played.uci.clone(),
+        best_uci: best.pv.first().cloned(),
+        win_before: best.eval.win_percent_for(mover),
+        win_second: lines.get(1).map(|l| l.eval.win_percent_for(mover)),
+        win_after: eval_after.win_percent_for(mover),
+        eval_before: best.eval,
+        eval_after,
+        in_book: i < book_plies,
+        prev_opponent_class,
+        material_swing,
+    };
+    let class = classify(&ctx, thresholds);
+    let loss = ctx.loss();
+
+    MoveReview {
+        ply: i + 1,
+        move_number: game.positions[i]
+            .split(' ')
+            .nth(5)
+            .and_then(|n| n.parse().ok())
+            .unwrap_or(1),
+        side: mover,
+        san: played.san.clone(),
+        uci: played.uci.clone(),
+        class,
+        eval_before: best.eval,
+        eval_after,
+        best_uci: ctx.best_uci.clone(),
+        best_san: ctx.best_uci.as_deref().and_then(|u| uci_to_san(&before, u)),
+        best_pv: best.pv.clone(),
+        loss,
+        accuracy: move_accuracy(ctx.win_before, ctx.win_before - loss),
+        critical: class.is_critical(),
+    }
+}
+
+/// Like `review_game`, but reports each analysed position and each classified move as it
+/// happens, so a UI can fill in while the engine is still working.
+pub fn review_game_streaming(
     game: &Game,
     analyzer: &mut dyn Analyzer,
     options: &ReviewOptions,
     book: &OpeningBook,
     cancel: &AtomicBool,
-    mut on_progress: impl FnMut(Progress),
+    mut on_event: impl FnMut(ReviewEvent),
 ) -> Result<Review, ReviewError> {
     // Stockfish treats `go depth 0` as unbounded, which would spin until the timeout.
     if options.limits.depth == 0 || options.limits.multipv == 0 {
@@ -152,101 +264,35 @@ pub fn review_game(
     }
     let n = game.moves.len();
     let total = n + 1;
+    let (book_plies, opening) = book_prefix(game, book);
 
     let mut analyses: Vec<PositionAnalysis> = Vec::with_capacity(total);
-    for i in 0..total {
+    let mut moves: Vec<MoveReview> = Vec::with_capacity(n);
+    for index in 0..total {
         if cancel.load(Ordering::Relaxed) {
             return Err(ReviewError::Cancelled);
         }
-        let pos = game.position(i);
+        let pos = game.position(index);
         let analysis = match terminal_analysis(&pos) {
             Some(terminal) => terminal,
-            None => analyzer.analyze(&game.positions[i], &options.limits)?,
+            None => analyzer.analyze(&game.positions[index], &options.limits)?,
         };
+        let eval = analysis.lines[0].eval;
         analyses.push(analysis);
-        on_progress(Progress { done: i + 1, total });
-    }
+        on_event(ReviewEvent::Analysed { index, total, eval });
 
-    // Book: the unbroken run of plies whose resulting position is a known opening position.
-    let mut book_plies = 0;
-    let mut opening = None;
-    for ply in 1..=n {
-        if !book.is_book(&game.positions[ply]) {
-            break;
+        if index >= 1 {
+            let reviewed = review_move(
+                index - 1,
+                game,
+                &analyses,
+                book_plies,
+                moves.last().map(|m: &MoveReview| m.class),
+                &options.thresholds,
+            );
+            on_event(ReviewEvent::Move(reviewed.clone()));
+            moves.push(reviewed);
         }
-        book_plies = ply;
-        if let Some(named) = book.name_of(&game.positions[ply]) {
-            opening = Some(named.clone());
-        }
-    }
-
-    let mut moves: Vec<MoveReview> = Vec::with_capacity(n);
-    for i in 0..n {
-        let before = game.position(i);
-        let after = game.position(i + 1);
-        let mover = Side::from(before.turn());
-        let played = &game.moves[i];
-        let lines = &analyses[i].lines;
-        let best = &lines[0];
-
-        // A move that ends the game is scored by the game's result, not by the engine's
-        // "mate in 1" for the position before it; otherwise prefer the engine line for the
-        // played move (same search as `best`), falling back to the next position's best line.
-        let next_best = analyses[i + 1].lines[0].eval;
-        let eval_after = if terminal_analysis(&after).is_some() {
-            next_best
-        } else {
-            lines
-                .iter()
-                .find(|l| l.pv.first() == Some(&played.uci))
-                .map_or(next_best, |l| l.eval)
-        };
-
-        let material_swing = {
-            let start = balance(&before, before.turn());
-            let reply = analyses[i + 1].lines[0].pv.first();
-            let settled = reply
-                .and_then(|r| apply_uci(&after, r))
-                .unwrap_or_else(|| after.clone());
-            balance(&settled, before.turn()) - start
-        };
-
-        let ctx = MoveContext {
-            mover,
-            played_uci: played.uci.clone(),
-            best_uci: best.pv.first().cloned(),
-            win_before: best.eval.win_percent_for(mover),
-            win_second: lines.get(1).map(|l| l.eval.win_percent_for(mover)),
-            win_after: eval_after.win_percent_for(mover),
-            eval_before: best.eval,
-            eval_after,
-            in_book: i < book_plies,
-            prev_opponent_class: moves.last().map(|m: &MoveReview| m.class),
-            material_swing,
-        };
-        let class = classify(&ctx, &options.thresholds);
-        let loss = ctx.loss();
-
-        moves.push(MoveReview {
-            ply: i + 1,
-            move_number: game.positions[i]
-                .split(' ')
-                .nth(5)
-                .and_then(|n| n.parse().ok())
-                .unwrap_or(1),
-            side: mover,
-            san: played.san.clone(),
-            uci: played.uci.clone(),
-            class,
-            eval_before: best.eval,
-            eval_after,
-            best_uci: ctx.best_uci.clone(),
-            best_san: ctx.best_uci.as_deref().and_then(|u| uci_to_san(&before, u)),
-            best_pv: best.pv.clone(),
-            loss,
-            accuracy: move_accuracy(ctx.win_before, ctx.win_before - loss),
-            critical: class.is_critical(),
-        });
     }
 
     let average = |side: Side| {
@@ -270,6 +316,24 @@ pub fn review_game(
         },
         critical_plies: moves.iter().filter(|m| m.critical).map(|m| m.ply).collect(),
         moves,
+    })
+}
+
+pub fn review_game(
+    game: &Game,
+    analyzer: &mut dyn Analyzer,
+    options: &ReviewOptions,
+    book: &OpeningBook,
+    cancel: &AtomicBool,
+    mut on_progress: impl FnMut(Progress),
+) -> Result<Review, ReviewError> {
+    review_game_streaming(game, analyzer, options, book, cancel, |event| {
+        if let ReviewEvent::Analysed { index, total, .. } = event {
+            on_progress(Progress {
+                done: index + 1,
+                total,
+            });
+        }
     })
 }
 
@@ -574,5 +638,54 @@ mod tests {
             MoveClass::Blunder,
             "stalemating a won position throws the win away"
         );
+    }
+
+    #[test]
+    fn moves_stream_as_soon_as_the_following_position_is_analysed() {
+        let game = parse_pgn("1. f3 e5 2. g4 Qh4# 0-1").unwrap().remove(0);
+        let mut analyzer = ScriptedAnalyzer::new(fools_mate_script());
+        let mut events = Vec::new();
+        let review = review_game_streaming(
+            &game,
+            &mut analyzer,
+            &ReviewOptions::default(),
+            &OpeningBook::empty(),
+            &AtomicBool::new(false),
+            |event| events.push(event),
+        )
+        .unwrap();
+
+        let shape: Vec<String> = events
+            .iter()
+            .map(|event| match event {
+                ReviewEvent::Analysed { index, total, .. } => {
+                    assert_eq!(*total, 5);
+                    format!("a{index}")
+                }
+                ReviewEvent::Move(m) => format!("m{}", m.ply),
+            })
+            .collect();
+        assert_eq!(
+            shape,
+            ["a0", "a1", "m1", "a2", "m2", "a3", "m3", "a4", "m4"]
+        );
+
+        let streamed: Vec<MoveReview> = events
+            .iter()
+            .filter_map(|e| match e {
+                ReviewEvent::Move(m) => Some(m.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(streamed, review.moves);
+
+        let evals: Vec<Eval> = events
+            .iter()
+            .filter_map(|e| match e {
+                ReviewEvent::Analysed { eval, .. } => Some(*eval),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(evals, review.evals);
     }
 }

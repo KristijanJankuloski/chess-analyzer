@@ -5,8 +5,8 @@ position of a game; the app classifies each move (book, brilliant, great, best, 
 mistake, miss, blunder), scores both players' accuracy and names the opening. Everything runs on
 your machine, with no account and no network.
 
-**Status:** the engine core and a command-line reviewer exist. The desktop app (Tauri + React) and
-LLM commentary come next. See [AGENTS.md](AGENTS.md) for the architecture and
+**Status:** the engine core, a command-line reviewer and a desktop app for reviewing and recording games exist.
+LLM commentary comes next. See [AGENTS.md](AGENTS.md) for the architecture and
 [docs/superpowers/specs](docs/superpowers/specs) for the design.
 
 ## Getting started
@@ -83,7 +83,7 @@ Use `-` instead of a path to read from standard input.
 | `--json` | off | Print the full review as JSON instead of the text report. |
 | `--cache FILE` / `--no-cache` | `chess-analyzer-cache.db` | Analyses are cached in a SQLite file, so re-reviewing a game is nearly instant. |
 
-Depth, MultiPV, threads and hash must each be at least 1.
+Depth must be 1 to 60, MultiPV 1 to 10, threads 1 to 256 and hash 1 to 65536 MB; anything else is refused.
 
 ### Good to know
 
@@ -105,6 +105,29 @@ Depth, MultiPV, threads and hash must each be at least 1.
 | `illegal or unreadable move "..." at ply N` | The PGN has a move that is not legal at that point (or a typo). `N` counts half-moves from the start. |
 | `unsupported variant` | The game is not standard chess. |
 | `the engine did not answer within ...` | The position took longer than 120 s at that depth. Lower `--depth`. |
+
+## Desktop app
+
+The desktop app (Tauri + React) shows a review the way Chess.com does: the board with a class badge on each move and an arrow for the move the engine preferred, an evaluation bar and graph, the classified move list, both players' accuracy and the opening. Reviews stream in while Stockfish works, and every finished review is saved so you can reopen it from the Games screen.
+
+You need [Node.js](https://nodejs.org) 20 or newer as well as Rust and Stockfish (see above).
+
+```
+cd app
+npm install
+npm run tauri dev
+```
+
+The first run compiles Tauri, which takes several minutes. Then:
+
+- **Games:** paste a PGN or open a PGN file and press Review. Recent games are listed; click one to reopen it.
+- **Record:** play a game over the board here, by clicking a piece and then its square or by dragging. The board enforces the rules (castling, en passant, promotion with a piece chooser) and ends the game at checkmate, stalemate or insufficient material. Repetitions and the fifty-move rule are left to you, because only a player claiming the draw ends a real game: pick the result yourself. Add the players' names, take moves back, and press "Review this game" to analyse it like any PGN.
+- **Settings:** the Stockfish path (empty means find it automatically), depth, lines, threads and hash. "Check engine" starts Stockfish to prove it works.
+- **Keyboard:** left and right arrows step through the moves, Home and End jump to the start and end.
+
+Games, settings and the analysis cache live in `%APPDATA%\com.chessanalyzer.app` on Windows.
+
+To see the interface in an ordinary browser without the Rust side, run `npm run dev` in `app` and open `http://localhost:1420/?demo`. Run the frontend tests with `npm test`. `npm run e2e:review` and `npm run e2e:record` check the real app end to end (see `app/e2e`; start the app with `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222` first).
 
 ## Tests
 

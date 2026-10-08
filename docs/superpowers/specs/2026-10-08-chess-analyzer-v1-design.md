@@ -20,7 +20,8 @@ Core principle (from `AGENTS.md`): Stockfish is the authority on chess; any LLM 
 | Review features | Everything: basic classification, brilliant/great/miss/book, per-player accuracy, eval graph, best-move arrows, opening names. |
 | Mate scores | First-class. Evaluation is `Cp(n)` or `Mate(n)`. |
 | Architecture | Rust core library with thin UI (Approach 1). |
-| Stockfish | Bundled as a Tauri sidecar. The binary is fetched by a setup script, not committed. An optional setting overrides the path. |
+| Stockfish | Fetched by a setup script into `engines/` (not committed) and found next to the app or in `engines/`; an optional setting overrides the path. Bundling it as a Tauri sidecar is deferred until installers are in scope. |
+| Board library | `react-chessboard` (MIT). Chessground is GPL-3.0 and would make the distributed app GPL. |
 | LLM | Out of v1. Delivery mechanism (Ollama vs. downloaded GGUF) decided at that milestone. |
 
 ## Structure
@@ -32,7 +33,7 @@ chess-analyzer/
     cli/         # `chess-analyzer review game.pgn`, thin wrapper over core
   app/
     src-tauri/   # Tauri shell: commands and events over core
-    src/         # React + TS: Chessground board, eval bar/graph, move list
+    src/         # React + TS: react-chessboard board, eval bar/graph, move list
   data/          # opening table, fixture PGNs
   scripts/       # fetches the Stockfish binary for the host OS
 ```
@@ -67,7 +68,7 @@ Commands (typed wrapper in TS, types generated from the Rust structs):
 Events: `review-progress`, `review-partial` (per-ply classification as it completes, so the graph and move list fill in live), `review-complete`.
 
 Screens:
-- **Review**: Chessground board with arrows and highlights, eval bar, clickable eval graph, classified move list, per-player accuracy, opening name.
+- **Review**: react-chessboard board with arrows and highlights, eval bar, clickable eval graph, classified move list, per-player accuracy, opening name.
 - **New game**: paste PGN, open file, or switch to record mode.
 - **Record mode**: same board; chess.js validates each dragged move; take-back; "Review" sends the moves to `start_review`.
 - **Settings**: Stockfish path, threads, hash, depth, MultiPV. First-run check for a missing binary.

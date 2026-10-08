@@ -21,7 +21,7 @@ Recreate a Chess.com-style "Game Review" experience (move classification, evalua
                     │      Tauri 2     │
                     │                  │
                     │  React + TS      │
-                    │  Chessground     │
+                    │ react-chessboard │
                     │  chess.js        │
                     └────────┬─────────┘
                              │
@@ -55,7 +55,7 @@ No web server, no PostgreSQL, no cloud services.
 | Desktop shell | **Tauri 2** | Small binaries, native process/file access, Windows/Linux/macOS |
 | Native backend | **Rust** | Manages Stockfish process, analysis queue, PGN processing, LLM orchestration |
 | Frontend | **React + TypeScript** | Highly interactive state: board, arrows, eval, variations, navigation |
-| Board UI | **Chessground** | Lichess-grade board; `react-chessboard` is a simpler fallback |
+| Board UI | **react-chessboard** | MIT licensed. Chessground (the Lichess board) is GPL-3.0-or-later and would make any distributed app GPL |
 | Chess rules | **chess.js** | Move generation, FEN, PGN parsing on the UI side |
 | Engine | **Native Stockfish** (UCI) | Not WASM: full control over threads, hash, MultiPV, depth, NNUE, Syzygy |
 | LLM runtime | **Ollama** first, **llama.cpp** later | Behind a provider abstraction (see below) |
