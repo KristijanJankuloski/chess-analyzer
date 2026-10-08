@@ -21,7 +21,7 @@ Core principle (from `AGENTS.md`) is unchanged: Stockfish is the authority on ch
 | Arrows | Green: the engine's best move for the side to move now. Red: the move the last mover should have played, only when their move was an inaccuracy, mistake, miss or blunder. |
 | Engine approach | One persistent Stockfish that is told to analyse the live position until the next move arrives. Rejected: one-shot fixed-depth runs per move (nothing updates during a long think); Stockfish in the browser (breaks the native-engine decision). |
 | Joining mid-game | When several moves arrive at once, only the last position gets the deep analysis. Earlier positions get a quick shallow pass, so every move still has a provisional badge. |
-| Depth | The live position is searched with no depth limit until the next move, take-back or pause. The depth setting continues to apply to the full review only. |
+| Depth | The live position is searched with no depth limit until the next move, take-back or pause. The depth setting continues to apply to the full review only. Depths below `MIN_SHOWN_DEPTH` (8) are not shown: the evaluation jumps around there and a move would flash through several classes. |
 | Leaving the tab | Pauses the search and keeps the engine process idle with its analyses; coming back resumes. The move list is also saved in the browser, so an app restart does not lose a game. |
 | Persistence of live analyses | Not stored in SQLite. They are provisional by design; the full review is the saved record. |
 
@@ -30,7 +30,7 @@ Core principle (from `AGENTS.md`) is unchanged: Stockfish is the authority on ch
 No new crates. The work lands in the existing three places:
 
 - `crates/core`: a search-streaming engine seam, a `LiveSession` that owns the engine thread, and `LiveEvent` types.
-- `app/src-tauri`: three commands and one event channel, a thin shell over `core`.
+- `app/src-tauri`: two commands and one event channel, a thin shell over `core`.
 - `app/src`: a Live screen that reuses the Record screen's move entry and the Review screen's board, bar, graph and move list.
 
 ## `core` crate
@@ -47,8 +47,11 @@ pub trait LiveEngine {
     fn start(&mut self, fen: &str, multipv: u32, limit: SearchLimit) -> Result<(), EngineError>;
     /// The next update, or `None` if nothing arrived within `wait`.
     fn poll(&mut self, wait: Duration) -> Result<Option<SearchUpdate>, EngineError>;
-    /// Stops the current search and waits until the engine is idle.
+    /// Stops the current search and waits until the engine is idle. Updates not yet polled are
+    /// discarded.
     fn stop(&mut self) -> Result<(), EngineError>;
+    /// Replaces a dead or stuck engine process with a fresh one.
+    fn recover(&mut self) -> Result<(), EngineError>;
 }
 
 pub enum SearchUpdate {
@@ -67,32 +70,34 @@ Lines are grouped per depth: an update is published only when every requested li
 
 `LiveSession` owns one engine and one background thread. The thread is driven by messages:
 
-- `SetMoves(Vec<String>)`: the complete move list in UCI, sent each time it changes.
+- `SetMoves { revision, moves }`: the complete move list in UCI, sent each time it changes, with a revision chosen by the caller (it must grow with every call).
 - `Pause`, `Shutdown`.
 
 On `SetMoves` the session:
 
 1. Replays the moves with `Game::from_uci_moves`. An illegal move is reported as `LiveEvent::Error` and the previous state is kept.
 2. Keeps the stored analysis of every position that is unchanged from before (the common prefix). Positions after the first difference are discarded.
-3. Freezes the previous live position's analysis at the depth it reached.
+3. Leaves the previous live position's analysis as it stands, at the depth it reached, so it is frozen.
 4. Decides what to search, in this order:
    - the **live position** (the last one) to a quick first answer (`Depth(QUICK_DEPTH)`), so the bar moves at once;
    - every earlier position that has no analysis yet, newest first, at `Depth(BACKLOG_DEPTH)`;
    - the live position again with `Infinite`, until the next message.
 5. A new message always interrupts the current search; the order is then recomputed. Terminal positions (checkmate, stalemate, insufficient material) are never sent to the engine; `review::terminal_analysis` supplies their evaluation.
+6. If the engine fails it is replaced once and the plan restarted; a second failure under the same revision is reported as `LiveEvent::Error` and the session waits. The next `SetMoves`, even for the same moves, tries the engine again. A panic in the session thread is reported the same way.
+7. A `SetMoves` for exactly the moves already being worked on only adopts the new revision.
 
-`QUICK_DEPTH` is 12 and `BACKLOG_DEPTH` is 12; both are constants in `live.rs`, not user settings. MultiPV, threads and hash come from `Settings`.
+`QUICK_DEPTH` is 12, `BACKLOG_DEPTH` is 12 and `MIN_SHOWN_DEPTH` is 8; all are constants in `live.rs`, not user settings. A search never replaces a stored analysis with a shallower or equal one. Backlog positions report only the last depth of their search; the newest position reports every depth. MultiPV, threads and hash come from `Settings`.
 
 ### Classification
 
-Move `i` is classified with the existing `review::review_move`, made `pub(crate)`, from `analyses[i]` and `analyses[i + 1]`. This keeps one definition of every class, including the `material_swing` and `prev_opponent_class` inputs and the opening-book rule. A move is classified as soon as both its analyses exist and is re-classified every time the position after it deepens, until the next move freezes it.
+Move `i` is classified with the existing `review::review_move`, made `pub(crate)`, from `analyses[i]` and `analyses[i + 1]`. This keeps one definition of every class, including the `material_swing` and `prev_opponent_class` inputs and the opening-book rule. A move is classified as soon as both its analyses exist and is re-classified every time either analysis changes; an event is sent only when the result differs from the last one sent. A class is **provisional** when the move is the newest (and the game is not over), or when either of its analyses is a shallow one: deeper than 0 (a finished game, which is exact) and no deeper than `BACKLOG_DEPTH`.
 
 ### Events
 
 ```rust
 pub enum LiveEvent {
-    /// Analysis of position `index` (0 = the start) improved, or was frozen.
-    Position { revision: u64, index: usize, depth: u32, lines: Vec<LiveLine>, frozen: bool },
+    /// Analysis of position `index` (0 = the start) reached a new depth.
+    Position { revision: u64, index: usize, depth: u32, lines: Vec<LiveLine> },
     /// Move `ply` was (re)classified.
     Move { revision: u64, review: MoveReview, provisional: bool },
     /// The engine failed. The session keeps the move list.
@@ -100,7 +105,7 @@ pub enum LiveEvent {
 }
 ```
 
-`LiveLine` is `AnalysisLine` plus `pv_san: Vec<String>`, so the UI never converts moves itself. `revision` is bumped by every `SetMoves`; the UI drops events with an older revision, so a late event from a stopped search can never overwrite newer state. All types derive `ts_rs::TS` into `app/src/generated/`.
+`LiveLine` is `AnalysisLine` plus `pv_san: Vec<String>`, so the UI never converts moves itself. `revision` is the one the caller gave the last `SetMoves`; the UI drops events of any other revision, so a late event from a stopped search can never overwrite newer state. The UI works out for itself which positions are frozen (every one but the newest). All types derive `ts_rs::TS` into `app/src/generated/`.
 
 ## Tauri app and UI
 
@@ -108,16 +113,19 @@ pub enum LiveEvent {
 
 | Command | Purpose |
 |---|---|
-| `live_update(moves: Vec<String>) -> u64` | Starts the session on first use, sends `SetMoves`, returns the revision. |
+| `live_update(revision: u64, moves: Vec<String>)` | Starts the session on first use, then sends `SetMoves`. The caller chooses the revision, so it knows it before any event can arrive. |
 | `live_pause()` | Stops the search; the engine and analyses stay. |
-| `live_reset()` | Shuts the session down (the "New game" action). |
 
-Events go out on the `live-event` channel. The three functions are added to the single `Api` interface with a Tauri implementation and a scriptable fake, as for the other screens. The session is dropped when the app closes, which kills Stockfish (the existing `Drop`).
+A new game is just an empty move list: the session keeps nothing but the start position. The session is rebuilt when the engine path, threads, hash or MultiPV in the settings change, and dropped when the app closes, which kills Stockfish (the existing `Drop`).
+
+Events go out on the `live-event` channel. The functions are added to the single `Api` interface with a Tauri implementation and a scriptable fake, as for the other screens.
+
+The UI keeps what it has learned across revisions for the moves the new list shares with the old one (the backend does the same) and discards the rest; the live state is kept in the app, not the screen, so it survives leaving the tab.
 
 ### Live screen
 
 - Board with the eval bar and a "depth N" label; green and red arrows as described above.
-- Move entry: the Record screen's click/drag logic (`lib/record.ts`: `tryMove`, `takeBack`, `isPromotion`) extracted into a shared hook, plus a SAN box that resolves the typed move against the current position with chess.js and shows "Illegal move: Nf6" inline without clearing the box.
+- Move entry: the Record screen's click/drag logic extracted into a shared hook (`useBoardEntry`) and component (`PromotionChooser`), which the Record screen now uses too, plus a SAN box that resolves the typed move against the current position with chess.js and shows "Illegal move: Nf6" inline without clearing the box. The box forgives case (`nf3`), `0-0`, trailing `+`, `#`, `!` and `?`. The names-and-result form is shared in the same way (`GameDetails`).
 - Move list with class badges (provisional badges are visually distinct), the eval graph (the existing component, filling in as moves arrive) and running accuracy for both players, computed from the classified moves exactly as the review does.
 - Top lines: up to MultiPV lines, each with its evaluation and the first moves in SAN.
 - Optional names and a result field, as in Record mode. "Review this game" sends the game to the existing review through `toReviewSource`.
@@ -149,8 +157,8 @@ Events go out on the `live-event` channel. The three functions are added to the 
 - Clocks and time-per-move.
 - Making `QUICK_DEPTH` and `BACKLOG_DEPTH` user-configurable.
 
-## Open items to settle during planning
+## Settled during planning
 
-- Whether the shared move-entry hook should also replace the logic inside the Record screen, or only be used by Live (risk of regressing Record versus duplicated code).
-- Throttling of `Position` events if deep searches produce more updates than the UI needs.
-- Whether running accuracy should be shown while the game is in progress; it moves a lot early on.
+- The shared move-entry hook replaces the logic inside the Record screen too, guarded by that screen's existing tests, rather than leaving two copies.
+- Position events need no throttling: a position reports only when it reaches a new depth, a couple of times a second at most once the search is deep.
+- Running accuracy is shown while the game is in progress, from the moves classified so far.
