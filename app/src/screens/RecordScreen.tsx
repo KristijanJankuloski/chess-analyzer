@@ -4,10 +4,11 @@ import { MoveList } from "../components/MoveList";
 import type { ReviewSource } from "../generated/ReviewSource";
 import { uciSquares } from "../lib/board";
 import {
+  type RecordDraft,
   type RecordResult,
   type RecordState,
   currentFen,
-  emptyRecording,
+  emptyDraft,
   gameOver,
   isPromotion,
   recordedGame,
@@ -20,7 +21,11 @@ import { startLive } from "../lib/reviewData";
 import { moveRows } from "../lib/rows";
 
 export interface RecordScreenProps {
+  /** The game being entered. It lives in the parent so it survives leaving this screen. */
+  draft: RecordDraft;
+  onDraftChange: (draft: RecordDraft) => void;
   onReview: (source: ReviewSource) => void;
+  /** Leaves the screen. The draft is kept. */
   onCancel: () => void;
 }
 
@@ -45,13 +50,13 @@ function statusText(state: RecordState): string {
 }
 
 /** Enter a game move by move on the board, then send it off to be reviewed. */
-export function RecordScreen({ onReview, onCancel }: RecordScreenProps) {
-  const [recording, setRecording] = useState<RecordState>(emptyRecording);
+export function RecordScreen({ draft, onDraftChange, onReview, onCancel }: RecordScreenProps) {
+  const { recording, white, black, result } = draft;
+  const update = (patch: Partial<RecordDraft>) => onDraftChange({ ...draft, ...patch });
+  const setRecording = (next: RecordState) => update({ recording: next });
   const [orientation, setOrientation] = useState<"white" | "black">("white");
-  const [white, setWhite] = useState("");
-  const [black, setBlack] = useState("");
-  const [result, setResult] = useState<RecordResult>("*");
   const [pending, setPending] = useState<{ from: string; to: string } | null>(null);
+  const [confirmingNew, setConfirmingNew] = useState(false);
 
   const headers = { white, black, result };
   const ended = gameOver(recording);
@@ -70,6 +75,12 @@ export function RecordScreen({ onReview, onCancel }: RecordScreenProps) {
     return true;
   };
 
+  const startOver = () => {
+    onDraftChange(emptyDraft);
+    setPending(null);
+    setConfirmingNew(false);
+  };
+
   const promote = (piece: string) => {
     if (!pending) return;
     const next = tryMove(recording, pending.from, pending.to, piece);
@@ -81,7 +92,7 @@ export function RecordScreen({ onReview, onCancel }: RecordScreenProps) {
     <div className="review">
       <header className="review__header">
         <button type="button" onClick={onCancel}>
-          Cancel
+          ← Back
         </button>
         <h1>Record a game</h1>
       </header>
@@ -109,6 +120,17 @@ export function RecordScreen({ onReview, onCancel }: RecordScreenProps) {
               </button>
             </div>
           )}
+          {confirmingNew && (
+            <div role="group" aria-label="Discard this game?" className="record__promotion">
+              <span>Discard this game?</span>
+              <button type="button" onClick={startOver}>
+                Discard game
+              </button>
+              <button type="button" onClick={() => setConfirmingNew(false)}>
+                Keep playing
+              </button>
+            </div>
+          )}
           <div className="nav-controls">
             <button
               type="button"
@@ -119,10 +141,7 @@ export function RecordScreen({ onReview, onCancel }: RecordScreenProps) {
             </button>
             <button
               type="button"
-              onClick={() => {
-                setRecording(emptyRecording);
-                setPending(null);
-              }}
+              onClick={() => (recording.uciMoves.length === 0 ? startOver() : setConfirmingNew(true))}
             >
               New game
             </button>
@@ -140,15 +159,15 @@ export function RecordScreen({ onReview, onCancel }: RecordScreenProps) {
         <div className="review__side">
           <div className="summary record__details">
             <label htmlFor="record-white">White</label>
-            <input id="record-white" type="text" value={white} placeholder="White" onChange={(e) => setWhite(e.target.value)} />
+            <input id="record-white" type="text" value={white} placeholder="White" onChange={(e) => update({ white: e.target.value })} />
             <label htmlFor="record-black">Black</label>
-            <input id="record-black" type="text" value={black} placeholder="Black" onChange={(e) => setBlack(e.target.value)} />
+            <input id="record-black" type="text" value={black} placeholder="Black" onChange={(e) => update({ black: e.target.value })} />
             <label htmlFor="record-result">Result</label>
             <select
               id="record-result"
               value={ended.over ? ended.result : result}
               disabled={ended.over}
-              onChange={(e) => setResult(e.target.value as RecordResult)}
+              onChange={(e) => update({ result: e.target.value as RecordResult })}
             >
               {(ended.over ? RESULTS.filter((r) => r.value === ended.result) : RESULTS).map((r) => (
                 <option key={r.value} value={r.value}>

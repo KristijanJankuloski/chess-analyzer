@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import type { Api } from "./api/types";
 import { type JobState, useReviewJob } from "./hooks/useReviewJob";
+import { type RecordDraft, emptyDraft } from "./lib/record";
 import type { ReviewData } from "./lib/reviewData";
 import { HomeScreen } from "./screens/HomeScreen";
 import { RecordScreen } from "./screens/RecordScreen";
@@ -29,6 +30,8 @@ function reviewing(state: JobState): Reviewing | null {
 export function App({ api }: { api: Api }) {
   const job = useReviewJob(api);
   const [view, setView] = useState<"home" | "settings" | "record">("home");
+  // The game being entered by hand lives here, so it survives looking at another screen.
+  const [draft, setDraft] = useState<RecordDraft>(emptyDraft);
   const { state } = job;
   const current = reviewing(state);
   // A new key each time a review is started or opened, so the screen begins at move 0 again.
@@ -61,8 +64,11 @@ export function App({ api }: { api: Api }) {
   } else if (view === "record" && !current) {
     body = (
       <RecordScreen
+        draft={draft}
+        onDraftChange={setDraft}
         onCancel={() => setView("home")}
         onReview={(source) => {
+          setDraft(emptyDraft);
           setView("home");
           void start(source);
         }}

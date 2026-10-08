@@ -128,8 +128,47 @@ describe("App", () => {
       const { user } = setup();
       await user.click(screen.getByRole("button", { name: "Record" }));
       expect(await screen.findByRole("heading", { name: "Record a game" })).toBeInTheDocument();
-      await user.click(screen.getByRole("button", { name: "Cancel" }));
+      await user.click(screen.getByRole("button", { name: "← Back" }));
       expect(await screen.findByRole("heading", { name: "Review a game" })).toBeInTheDocument();
+    });
+
+    it("keeps a half-entered game when you look at the settings and come back", async () => {
+      const { user } = setup();
+      await user.click(screen.getByRole("button", { name: "Record" }));
+      await screen.findByRole("heading", { name: "Record a game" });
+      drop("e2", "e4");
+      drop("e7", "e5");
+
+      await user.click(screen.getByRole("button", { name: "Settings" }));
+      await screen.findByRole("heading", { name: "Settings" });
+      await user.click(screen.getByRole("button", { name: "Record" }));
+
+      expect(await screen.findByRole("button", { name: "e4" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "e5" })).toBeInTheDocument();
+    });
+
+    it("keeps the game when you go back to the list and return", async () => {
+      const { user } = setup();
+      await user.click(screen.getByRole("button", { name: "Record" }));
+      await screen.findByRole("heading", { name: "Record a game" });
+      drop("e2", "e4");
+      await user.click(screen.getByRole("button", { name: "← Back" }));
+      await screen.findByRole("heading", { name: "Review a game" });
+      await user.click(screen.getByRole("button", { name: "Record" }));
+      expect(await screen.findByRole("button", { name: "e4" })).toBeInTheDocument();
+    });
+
+    it("starts the next recording empty once a game has been sent for review", async () => {
+      const { api, user } = setup();
+      await ready(api);
+      await user.click(screen.getByRole("button", { name: "Record" }));
+      await screen.findByRole("heading", { name: "Record a game" });
+      drop("e2", "e4");
+      await user.click(screen.getByRole("button", { name: "Review this game" }));
+      await screen.findByRole("status");
+      await user.click(screen.getByRole("button", { name: "Record" }));
+      await screen.findByRole("heading", { name: "Record a game" });
+      expect(screen.queryByRole("button", { name: "e4" })).not.toBeInTheDocument();
     });
 
     it("cancels a review that is still running when you start recording", async () => {

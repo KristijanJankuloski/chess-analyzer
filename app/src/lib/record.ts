@@ -22,6 +22,19 @@ export interface RecordHeaders {
 
 export const emptyRecording: RecordState = { uciMoves: [] };
 
+/**
+ * Everything the user has typed or played on the record screen. The app keeps it, so clicking
+ * to another screen does not throw away a game that took a long time to enter.
+ */
+export interface RecordDraft {
+  recording: RecordState;
+  white: string;
+  black: string;
+  result: RecordResult;
+}
+
+export const emptyDraft: RecordDraft = { recording: emptyRecording, white: "", black: "", result: "*" };
+
 function playUci(chess: Chess, uci: string) {
   return chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] });
 }

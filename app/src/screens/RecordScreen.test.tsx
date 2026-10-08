@@ -1,15 +1,23 @@
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { type RecordDraft, emptyDraft } from "../lib/record";
 import { lastBoardOptions } from "../test-utils/boardStub";
 import { RecordScreen } from "./RecordScreen";
 
 const START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
+/** Holds the draft the way App does, so the screen can be driven on its own. */
+function Harness(props: Pick<React.ComponentProps<typeof RecordScreen>, "onReview" | "onCancel">) {
+  const [draft, setDraft] = useState<RecordDraft>(emptyDraft);
+  return <RecordScreen draft={draft} onDraftChange={setDraft} {...props} />;
+}
+
 function setup() {
   const onReview = vi.fn();
   const onCancel = vi.fn();
-  render(<RecordScreen onReview={onReview} onCancel={onCancel} />);
+  render(<Harness onReview={onReview} onCancel={onCancel} />);
   return { onReview, onCancel, user: userEvent.setup() };
 }
 
@@ -133,12 +141,31 @@ describe("RecordScreen", () => {
     expect(source.headers).toMatchObject({ White: "Me", Black: "My friend", Result: "1-0" });
   });
 
-  it("starts over", async () => {
+  it("asks before throwing away a game that has moves, and can be told to keep it", async () => {
+    const { user } = setup();
+    playAll("e2e4", "e7e5");
+    await user.click(screen.getByRole("button", { name: "New game" }));
+    expect(screen.getByRole("group", { name: "Discard this game?" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "e5" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Keep playing" }));
+    expect(screen.queryByRole("group", { name: "Discard this game?" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "e5" })).toBeInTheDocument();
+  });
+
+  it("starts over once the user agrees to discard", async () => {
     const { user } = setup();
     playAll("e2e4");
     await user.click(screen.getByRole("button", { name: "New game" }));
+    await user.click(screen.getByRole("button", { name: "Discard game" }));
     expect(screen.getByTestId("chessboard")).toHaveAttribute("data-fen", START);
     expect(screen.queryByRole("button", { name: "e4" })).not.toBeInTheDocument();
+  });
+
+  it("starts a new game straight away when nothing has been played", async () => {
+    const { user } = setup();
+    await user.click(screen.getByRole("button", { name: "New game" }));
+    expect(screen.queryByRole("group", { name: "Discard this game?" })).not.toBeInTheDocument();
   });
 
   it("flips the board", async () => {
@@ -153,9 +180,9 @@ describe("RecordScreen", () => {
     expect(Object.keys(lastBoardOptions().squareStyles ?? {}).sort()).toEqual(["e2", "e4"]);
   });
 
-  it("can be cancelled", async () => {
+  it("goes back without discarding anything", async () => {
     const { user, onCancel } = setup();
-    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.click(screen.getByRole("button", { name: "← Back" }));
     expect(onCancel).toHaveBeenCalledOnce();
   });
 });
