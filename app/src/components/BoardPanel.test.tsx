@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { lastBoardOptions } from "../test-utils/boardStub";
 import { BoardPanel } from "./BoardPanel";
@@ -69,5 +69,69 @@ describe("BoardPanel", () => {
     });
     expect(dropped).toBe(false);
     expect(onMove).not.toHaveBeenCalled();
+  });
+
+  describe("click to move", () => {
+    const pawn = { pieceType: "wP" };
+    const click = (square: string, piece: { pieceType: string } | null) =>
+      act(() => lastBoardOptions().onSquareClick!({ piece, square }));
+
+    it("moves a piece with two clicks", () => {
+      const onMove = vi.fn().mockReturnValue(true);
+      render(<BoardPanel fen={FEN} orientation="white" onMove={onMove} />);
+      click("e2", pawn);
+      expect(Object.keys(lastBoardOptions().squareStyles ?? {})).toEqual(["e2"]);
+      click("e4", null);
+      expect(onMove).toHaveBeenCalledWith("e2", "e4");
+      expect(lastBoardOptions().squareStyles).toEqual({});
+    });
+
+    it("clears the selection when the same square is clicked again", () => {
+      const onMove = vi.fn();
+      render(<BoardPanel fen={FEN} orientation="white" onMove={onMove} />);
+      click("e2", pawn);
+      click("e2", pawn);
+      expect(lastBoardOptions().squareStyles).toEqual({});
+      expect(onMove).not.toHaveBeenCalled();
+    });
+
+    it("selects a different piece when the move is refused and the square holds a piece", () => {
+      const onMove = vi.fn().mockReturnValue(false);
+      render(<BoardPanel fen={FEN} orientation="white" onMove={onMove} />);
+      click("e2", pawn);
+      click("d2", pawn);
+      expect(onMove).toHaveBeenCalledWith("e2", "d2");
+      expect(Object.keys(lastBoardOptions().squareStyles ?? {})).toEqual(["d2"]);
+    });
+
+    it("forgets the selection when a refused move lands on an empty square", () => {
+      const onMove = vi.fn().mockReturnValue(false);
+      render(<BoardPanel fen={FEN} orientation="white" onMove={onMove} />);
+      click("e2", pawn);
+      click("e5", null);
+      expect(lastBoardOptions().squareStyles).toEqual({});
+    });
+
+    it("ignores clicks on empty squares when nothing is selected", () => {
+      const onMove = vi.fn();
+      render(<BoardPanel fen={FEN} orientation="white" onMove={onMove} />);
+      click("e5", null);
+      expect(onMove).not.toHaveBeenCalled();
+      expect(lastBoardOptions().squareStyles).toEqual({});
+    });
+
+    it("does nothing on a board that is not playable", () => {
+      render(<BoardPanel fen={FEN} orientation="white" />);
+      click("e2", pawn);
+      expect(lastBoardOptions().squareStyles).toEqual({});
+    });
+
+    it("drops the selection when the position changes", () => {
+      const onMove = vi.fn().mockReturnValue(true);
+      const { rerender } = render(<BoardPanel fen={FEN} orientation="white" onMove={onMove} />);
+      click("e2", pawn);
+      rerender(<BoardPanel fen={FEN.replace(" w ", " b ")} orientation="white" onMove={onMove} />);
+      expect(lastBoardOptions().squareStyles).toEqual({});
+    });
   });
 });
