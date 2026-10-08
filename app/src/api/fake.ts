@@ -2,6 +2,7 @@ import { foolsMate, operaGame } from "../fixtures";
 import type { EngineStatus } from "../generated/EngineStatus";
 import type { GameSummary } from "../generated/GameSummary";
 import type { JobEvent } from "../generated/JobEvent";
+import type { LiveEvent } from "../generated/LiveEvent";
 import type { PgnGameInfo } from "../generated/PgnGameInfo";
 import type { Settings } from "../generated/Settings";
 import type { StartedJob } from "../generated/StartedJob";
@@ -19,8 +20,12 @@ export const DEFAULT_SETTINGS: Settings = {
 export interface FakeApi extends Api {
   /** Delivers an event to every subscriber, as the Rust side would. */
   emit(event: JobEvent): void;
-  /** How many handlers are currently subscribed. */
+  /** Delivers a live analysis event to every live subscriber. */
+  emitLive(event: LiveEvent): void;
+  /** How many handlers are currently subscribed to review events. */
   subscribers(): number;
+  /** How many handlers are currently subscribed to live analysis events. */
+  liveSubscribers(): number;
   /** Every call, in order, as `[method, ...args]`. */
   calls: unknown[][];
 }
@@ -39,6 +44,8 @@ export interface FakeOptions {
   pickedPath?: string | null;
   /** What `readPgnFile` resolves to. */
   fileText?: string;
+  /** Make `liveUpdate` reject with this message (for example, no engine). */
+  liveError?: string;
 }
 
 function summaryOf(stored: StoredGame): GameSummary {
@@ -50,13 +57,16 @@ export function createFakeApi(options: FakeOptions = {}): FakeApi {
   const games = [...(options.games ?? [])];
   let settings = options.settings ?? DEFAULT_SETTINGS;
   const handlers = new Set<(event: JobEvent) => void>();
+  const liveHandlers = new Set<(event: LiveEvent) => void>();
   const calls: unknown[][] = [];
   const record = (...call: unknown[]) => calls.push(call);
 
   return {
     calls,
     emit: (event) => handlers.forEach((handler) => handler(event)),
+    emitLive: (event) => liveHandlers.forEach((handler) => handler(event)),
     subscribers: () => handlers.size,
+    liveSubscribers: () => liveHandlers.size,
 
     parsePgnGames: async (text) => {
       record("parsePgnGames", text);
@@ -115,6 +125,20 @@ export function createFakeApi(options: FakeOptions = {}): FakeApi {
       handlers.add(handler);
       return () => {
         handlers.delete(handler);
+      };
+    },
+    liveUpdate: async (revision, moves) => {
+      record("liveUpdate", revision, moves);
+      if (options.liveError) throw options.liveError;
+    },
+    livePause: async () => {
+      record("livePause");
+    },
+    onLiveEvent: async (handler) => {
+      record("onLiveEvent");
+      liveHandlers.add(handler);
+      return () => {
+        liveHandlers.delete(handler);
       };
     },
   };
