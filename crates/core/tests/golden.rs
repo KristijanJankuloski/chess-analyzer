@@ -15,9 +15,10 @@ use chess_analyzer_core::engine::{
     Analyzer, EngineConfig, EngineError, Limits, PositionAnalysis, ScriptedAnalyzer, UciEngine,
     locate_stockfish,
 };
-use chess_analyzer_core::game::parse_pgn;
+use chess_analyzer_core::game::{Game, parse_pgn};
 use chess_analyzer_core::openings::OpeningBook;
 use chess_analyzer_core::review::{Review, ReviewOptions, review_game};
+use chess_analyzer_core::store::GameStore;
 
 const FIXTURES: &[&str] = &["fools_mate", "opera_game"];
 
@@ -62,14 +63,14 @@ fn snapshot(review: &Review) -> String {
     out
 }
 
-fn replay(name: &str) -> Review {
+fn replay(name: &str) -> (Game, Review) {
     let pgn = std::fs::read_to_string(fixture(&format!("{name}.pgn"))).expect("fixture PGN");
     let recorded = std::fs::read_to_string(fixture(&format!("{name}.analysis.json")))
         .expect("recorded analyses; see the module docs to record them");
     let analyses: Vec<PositionAnalysis> = serde_json::from_str(&recorded).expect("valid analyses");
     let game = parse_pgn(&pgn).expect("valid PGN").remove(0);
     let mut analyzer = ScriptedAnalyzer::new(analyses);
-    review_game(
+    let review = review_game(
         &game,
         &mut analyzer,
         &ReviewOptions::default(),
@@ -77,18 +78,64 @@ fn replay(name: &str) -> Review {
         &AtomicBool::new(false),
         |_| {},
     )
-    .expect("review replays")
+    .expect("review replays");
+    (game, review)
+}
+
+/// The review as the desktop app's store would hand it to the frontend. The id and the
+/// timestamp are fixed so the file is reproducible.
+fn app_fixture_json(game: &Game, review: &Review) -> String {
+    let store = GameStore::in_memory().expect("in-memory store");
+    let id = store.save(game, review).expect("save");
+    let mut stored = store.get(id).expect("get").expect("exists");
+    stored.summary.created_at = 1_700_000_000;
+    let mut value = serde_json::to_value(&stored).expect("serialize");
+    round_floats(&mut value);
+    serde_json::to_string_pretty(&value).expect("serialize") + "\n"
+}
+
+/// Rounds every non-integer number to 6 decimals, so tiny platform differences in `exp()`
+/// cannot make the fixture look changed.
+fn round_floats(value: &mut serde_json::Value) {
+    use serde_json::Value;
+    match value {
+        Value::Number(n) if n.is_f64() => {
+            let rounded = (n.as_f64().expect("f64") * 1e6).round() / 1e6;
+            *value = Value::from(rounded);
+        }
+        Value::Array(items) => items.iter_mut().for_each(round_floats),
+        Value::Object(map) => map.values_mut().for_each(round_floats),
+        _ => {}
+    }
+}
+
+fn app_fixture_path(name: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../app/src/fixtures")
+        .join(format!("{name}.stored.json"))
 }
 
 #[test]
 fn reviews_match_their_golden_snapshots() {
     for name in FIXTURES {
-        let actual = snapshot(&replay(name));
+        let (game, review) = replay(name);
+        let actual = snapshot(&review);
+        let app_json = app_fixture_json(&game, &review);
         let golden_path = fixture(&format!("{name}.golden.txt"));
         if std::env::var_os("UPDATE_GOLDEN").is_some() {
             std::fs::write(&golden_path, &actual).expect("write golden");
+            let app_path = app_fixture_path(name);
+            std::fs::create_dir_all(app_path.parent().unwrap()).expect("fixtures dir");
+            std::fs::write(&app_path, &app_json).expect("write app fixture");
             continue;
         }
+        let app_expected = std::fs::read_to_string(app_fixture_path(name))
+            .unwrap_or_else(|_| panic!("missing app fixture for {name}; run with UPDATE_GOLDEN=1"));
+        assert_eq!(
+            app_json.replace("\r\n", "\n"),
+            app_expected.replace("\r\n", "\n"),
+            "the app fixture for {name} no longer matches the Rust types; re-run with UPDATE_GOLDEN=1"
+        );
         let expected = std::fs::read_to_string(&golden_path)
             .unwrap_or_else(|_| panic!("missing {golden_path:?}; run with UPDATE_GOLDEN=1"));
         assert_eq!(
