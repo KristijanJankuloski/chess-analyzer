@@ -528,3 +528,30 @@ h2 {
     grid-template-columns: 1fr;
   }
 }
+
+/* Record mode */
+
+.record__details {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.record__details label {
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.record__details select {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.record__promotion {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}

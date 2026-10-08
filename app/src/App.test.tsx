@@ -2,6 +2,7 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { App } from "./App";
+import { lastBoardOptions } from "./test-utils/boardStub";
 import { createFakeApi, eventsFor } from "./api/fake";
 import { foolsMate, operaGame } from "./fixtures";
 
@@ -111,5 +112,53 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Games" }));
     expect(await screen.findByRole("heading", { name: "Review a game" })).toBeInTheDocument();
+  });
+
+  describe("recording a game by hand", () => {
+    const drop = (from: string, to: string) =>
+      act(() => {
+        lastBoardOptions().onPieceDrop!({
+          piece: { isSparePiece: false, position: from, pieceType: "wP" },
+          sourceSquare: from,
+          targetSquare: to,
+        });
+      });
+
+    it("opens from the navigation bar and can be cancelled", async () => {
+      const { user } = setup();
+      await user.click(screen.getByRole("button", { name: "Record" }));
+      expect(await screen.findByRole("heading", { name: "Record a game" })).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Cancel" }));
+      expect(await screen.findByRole("heading", { name: "Review a game" })).toBeInTheDocument();
+    });
+
+    it("cancels a review that is still running when you start recording", async () => {
+      const { api, user } = setup();
+      await ready(api);
+      await user.type(screen.getByLabelText("PGN text"), "1. f3");
+      await user.click(screen.getByRole("button", { name: "Review" }));
+      await screen.findByRole("status");
+      await user.click(screen.getByRole("button", { name: "Record" }));
+      expect(api.calls).toContainEqual(["cancelReview", 1]);
+      expect(await screen.findByRole("heading", { name: "Record a game" })).toBeInTheDocument();
+    });
+
+    it("reviews the recorded moves like any other game", async () => {
+      const { api, user } = setup();
+      await ready(api);
+      await user.click(screen.getByRole("button", { name: "Record" }));
+      await screen.findByRole("heading", { name: "Record a game" });
+      drop("f2", "f3");
+      drop("e7", "e5");
+      drop("g2", "g4");
+      drop("d8", "h4");
+      await user.click(screen.getByRole("button", { name: "Review this game" }));
+
+      expect(await screen.findByRole("status")).toHaveTextContent("Analysing position 1 of 5");
+      const call = api.calls.find((c) => c[0] === "startReview");
+      expect(call?.[1]).toMatchObject({ kind: "moves", uci_moves: ["f2f3", "e7e5", "g2g4", "d8h4"] });
+      act(() => eventsFor(foolsMate, 1).forEach((e) => api.emit(e)));
+      expect(await screen.findByText("39.9")).toBeInTheDocument();
+    });
   });
 });

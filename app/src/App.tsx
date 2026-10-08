@@ -3,6 +3,7 @@ import type { Api } from "./api/types";
 import { type JobState, useReviewJob } from "./hooks/useReviewJob";
 import type { ReviewData } from "./lib/reviewData";
 import { HomeScreen } from "./screens/HomeScreen";
+import { RecordScreen } from "./screens/RecordScreen";
 import { ReviewScreen } from "./screens/ReviewScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
 
@@ -27,7 +28,7 @@ function reviewing(state: JobState): Reviewing | null {
 
 export function App({ api }: { api: Api }) {
   const job = useReviewJob(api);
-  const [view, setView] = useState<"home" | "settings">("home");
+  const [view, setView] = useState<"home" | "settings" | "record">("home");
   const { state } = job;
   const current = reviewing(state);
   // A new key each time a review is started or opened, so the screen begins at move 0 again.
@@ -57,6 +58,16 @@ export function App({ api }: { api: Api }) {
   let body: React.ReactNode;
   if (view === "settings") {
     body = <SettingsScreen api={api} onDone={() => setView("home")} />;
+  } else if (view === "record" && !current) {
+    body = (
+      <RecordScreen
+        onCancel={() => setView("home")}
+        onReview={(source) => {
+          setView("home");
+          void start(source);
+        }}
+      />
+    );
   } else if (current) {
     body = (
       <ReviewScreen
@@ -85,6 +96,17 @@ export function App({ api }: { api: Api }) {
         <strong className="app__title">Chess Analyzer</strong>
         <button type="button" onClick={goHome} aria-current={view === "home" ? "page" : undefined}>
           Games
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            if (state.status === "running") job.cancel();
+            job.close();
+            setView("record");
+          }}
+          aria-current={view === "record" ? "page" : undefined}
+        >
+          Record
         </button>
         <button
           type="button"
