@@ -1,9 +1,12 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { Api } from "./api/types";
+import { useLiveGame } from "./hooks/useLiveGame";
 import { type JobState, useReviewJob } from "./hooks/useReviewJob";
+import { loadLiveDraft, saveLiveDraft } from "./lib/liveDraft";
 import { type RecordDraft, emptyDraft } from "./lib/record";
 import type { ReviewData } from "./lib/reviewData";
 import { HomeScreen } from "./screens/HomeScreen";
+import { LiveScreen } from "./screens/LiveScreen";
 import { RecordScreen } from "./screens/RecordScreen";
 import { ReviewScreen } from "./screens/ReviewScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
@@ -29,9 +32,13 @@ function reviewing(state: JobState): Reviewing | null {
 
 export function App({ api }: { api: Api }) {
   const job = useReviewJob(api);
-  const [view, setView] = useState<"home" | "settings" | "record">("home");
+  const [view, setView] = useState<"home" | "settings" | "record" | "live">("home");
   // The game being entered by hand lives here, so it survives looking at another screen.
   const [draft, setDraft] = useState<RecordDraft>(emptyDraft);
+  // The game being followed lives here too, and is also kept in storage across restarts.
+  const [liveDraft, setLiveDraft] = useState<RecordDraft>(loadLiveDraft);
+  useEffect(() => saveLiveDraft(liveDraft), [liveDraft]);
+  const liveGame = useLiveGame(api, liveDraft.recording.uciMoves, view === "live");
   const { state } = job;
   const current = reviewing(state);
   // A new key each time a review is started or opened, so the screen begins at move 0 again.
@@ -69,6 +76,21 @@ export function App({ api }: { api: Api }) {
         onCancel={() => setView("home")}
         onReview={(source) => {
           setDraft(emptyDraft);
+          setView("home");
+          void start(source);
+        }}
+      />
+    );
+  } else if (view === "live" && !current) {
+    body = (
+      <LiveScreen
+        draft={liveDraft}
+        onDraftChange={setLiveDraft}
+        live={liveGame.state}
+        onRestart={liveGame.restart}
+        onBack={() => setView("home")}
+        onReview={(source) => {
+          setLiveDraft(emptyDraft);
           setView("home");
           void start(source);
         }}
@@ -113,6 +135,17 @@ export function App({ api }: { api: Api }) {
           aria-current={view === "record" ? "page" : undefined}
         >
           Record
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            if (state.status === "running") job.cancel();
+            job.close();
+            setView("live");
+          }}
+          aria-current={view === "live" ? "page" : undefined}
+        >
+          Live
         </button>
         <button
           type="button"
