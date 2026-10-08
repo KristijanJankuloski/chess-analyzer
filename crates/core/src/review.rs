@@ -103,7 +103,7 @@ fn balance(pos: &Chess, color: Color) -> i32 {
     material(pos, color) - material(pos, color.other())
 }
 
-fn apply_uci(pos: &Chess, uci: &str) -> Option<Chess> {
+pub(crate) fn apply_uci(pos: &Chess, uci: &str) -> Option<Chess> {
     let mv = UciMove::from_ascii(uci.as_bytes())
         .ok()?
         .to_move(pos)
@@ -113,7 +113,7 @@ fn apply_uci(pos: &Chess, uci: &str) -> Option<Chess> {
     Some(next)
 }
 
-fn uci_to_san(pos: &Chess, uci: &str) -> Option<String> {
+pub(crate) fn uci_to_san(pos: &Chess, uci: &str) -> Option<String> {
     let mv = UciMove::from_ascii(uci.as_bytes())
         .ok()?
         .to_move(pos)
@@ -122,7 +122,7 @@ fn uci_to_san(pos: &Chess, uci: &str) -> Option<String> {
 }
 
 /// What the engine would say about a finished game, without asking it.
-fn terminal_analysis(pos: &Chess) -> Option<PositionAnalysis> {
+pub(crate) fn terminal_analysis(pos: &Chess) -> Option<PositionAnalysis> {
     let eval = if pos.is_checkmate() {
         Eval::Checkmate(Side::from(pos.turn().other()))
     } else if pos.is_stalemate() || pos.is_insufficient_material() {
@@ -155,7 +155,7 @@ pub enum ReviewEvent {
 
 /// The unbroken run of plies whose resulting position is a known opening position,
 /// and the deepest named opening along it.
-fn book_prefix(game: &Game, book: &OpeningBook) -> (usize, Option<Opening>) {
+pub(crate) fn book_prefix(game: &Game, book: &OpeningBook) -> (usize, Option<Opening>) {
     let mut book_plies = 0;
     let mut opening = None;
     for ply in 1..=game.moves.len() {
@@ -170,11 +170,13 @@ fn book_prefix(game: &Game, book: &OpeningBook) -> (usize, Option<Opening>) {
     (book_plies, opening)
 }
 
-/// Classifies move `i` (0-based) once the analyses of positions `i` and `i + 1` exist.
-fn review_move(
+/// Classifies move `i` (0-based) from the analyses of the position before it and the position
+/// after it.
+pub(crate) fn review_move(
     i: usize,
     game: &Game,
-    analyses: &[PositionAnalysis],
+    before_analysis: &PositionAnalysis,
+    after_analysis: &PositionAnalysis,
     book_plies: usize,
     prev_opponent_class: Option<MoveClass>,
     thresholds: &Thresholds,
@@ -183,13 +185,13 @@ fn review_move(
     let after = game.position(i + 1);
     let mover = Side::from(before.turn());
     let played = &game.moves[i];
-    let lines = &analyses[i].lines;
+    let lines = &before_analysis.lines;
     let best = &lines[0];
 
     // A move that ends the game is scored by the game's result, not by the engine's
     // "mate in 1" for the position before it; otherwise prefer the engine line for the
     // played move (same search as `best`), falling back to the next position's best line.
-    let next_best = analyses[i + 1].lines[0].eval;
+    let next_best = after_analysis.lines[0].eval;
     let eval_after = if terminal_analysis(&after).is_some() {
         next_best
     } else {
@@ -201,7 +203,7 @@ fn review_move(
 
     let material_swing = {
         let start = balance(&before, before.turn());
-        let reply = analyses[i + 1].lines[0].pv.first();
+        let reply = after_analysis.lines[0].pv.first();
         let settled = reply
             .and_then(|r| apply_uci(&after, r))
             .unwrap_or_else(|| after.clone());
@@ -285,7 +287,8 @@ pub fn review_game_streaming(
             let reviewed = review_move(
                 index - 1,
                 game,
-                &analyses,
+                &analyses[index - 1],
+                &analyses[index],
                 book_plies,
                 moves.last().map(|m: &MoveReview| m.class),
                 &options.thresholds,
