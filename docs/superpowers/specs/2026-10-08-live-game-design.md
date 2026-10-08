@@ -84,7 +84,9 @@ On `SetMoves` the session:
    - the live position again with `Infinite`, until the next message.
 5. A new message always interrupts the current search; the order is then recomputed. Terminal positions (checkmate, stalemate, insufficient material) are never sent to the engine; `review::terminal_analysis` supplies their evaluation.
 6. If the engine fails it is replaced once and the plan restarted; a second failure under the same revision is reported as `LiveEvent::Error` and the session waits. The next `SetMoves`, even for the same moves, tries the engine again. A panic in the session thread is reported the same way.
-7. A `SetMoves` for exactly the moves already being worked on only adopts the new revision.
+7. A `SetMoves` for exactly the moves already being worked on adopts the new revision and sends what is known again, but searches nothing.
+8. A `SetMoves` whose revision is older than the current one is ignored: commands can overtake each other on the way from the UI, and the newest revision is the truth.
+9. Whatever is kept is sent again under the new revision (every stored position, then every classified move). A consumer moves to a new revision the moment its user acts and drops what arrives under the old one, so results the session sent in the meantime would otherwise be lost, because the session considers them delivered.
 
 `QUICK_DEPTH` is 12, `BACKLOG_DEPTH` is 12 and `MIN_SHOWN_DEPTH` is 8; all are constants in `live.rs`, not user settings. A search never replaces a stored analysis with a shallower or equal one. Backlog positions report only the last depth of their search; the newest position reports every depth. MultiPV, threads and hash come from `Settings`.
 
@@ -119,6 +121,8 @@ pub enum LiveEvent {
 A new game is just an empty move list: the session keeps nothing but the start position. The session is rebuilt when the engine path, threads, hash or MultiPV in the settings change, and dropped when the app closes, which kills Stockfish (the existing `Drop`).
 
 Events go out on the `live-event` channel. The functions are added to the single `Api` interface with a Tauri implementation and a scriptable fake, as for the other screens.
+
+A session whose worker thread has died after an internal error reports `is_running() == false`, and the next `live_update` builds a new session, so "Restart analysis" always has something to restart.
 
 The UI keeps what it has learned across revisions for the moves the new list shares with the old one (the backend does the same) and discards the rest; the live state is kept in the app, not the screen, so it survives leaving the tab.
 

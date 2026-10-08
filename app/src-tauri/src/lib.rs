@@ -153,8 +153,12 @@ fn live_update(
     settings.validate().map_err(message)?;
     let key = EngineKey::of(&settings);
     let mut live = state.live.lock().map_err(message)?;
-    if live.as_ref().is_none_or(|running| running.key != key) {
-        // Stop the old engine before the next one starts.
+    if live
+        .as_ref()
+        .is_none_or(|running| running.key != key || !running.session.is_running())
+    {
+        // Stop the old engine before the next one starts (a session whose worker died after an
+        // internal error is replaced too, so that asking again works).
         *live = None;
         let engine = settings.start_engine().map_err(message)?;
         let config = LiveConfig {

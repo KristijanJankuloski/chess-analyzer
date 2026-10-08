@@ -152,8 +152,16 @@ impl LiveSession {
     /// Tells the session the complete list of moves (UCI) played so far. `revision` must grow
     /// with every call; the events that follow carry it.
     pub fn set_moves(&self, revision: u64, moves: Vec<String>) {
-        self.latest_revision.store(revision, Ordering::Relaxed);
+        self.latest_revision.fetch_max(revision, Ordering::Relaxed);
         let _ = self.commands.send(Command::SetMoves { revision, moves });
+    }
+
+    /// Whether the worker thread is still there. It is not after an internal error (which is
+    /// reported as a `LiveEvent::Error`); such a session can only be replaced.
+    pub fn is_running(&self) -> bool {
+        self.thread
+            .as_ref()
+            .is_some_and(|thread| !thread.is_finished())
     }
 
     /// Stops searching. The analyses are kept; the next `set_moves` resumes.
@@ -294,6 +302,10 @@ impl<E: LiveEngine> Worker<E> {
     }
 
     fn set_moves(&mut self, revision: u64, moves: Vec<String>) {
+        // Commands can reach the worker out of order; the newest revision is the truth.
+        if revision < self.revision {
+            return;
+        }
         self.revision = revision;
         let was_paused = std::mem::replace(&mut self.paused, false);
         let was_failed = std::mem::replace(&mut self.failed, false);
@@ -307,7 +319,9 @@ impl<E: LiveEngine> Worker<E> {
                 .zip(&moves)
                 .all(|(m, uci)| m.uci == *uci);
         if same && !was_paused && !was_failed {
-            return; // already working on exactly this
+            // Already working on exactly this; only tell the consumer again what is known.
+            self.resend_known();
+            return;
         }
 
         let game = match Game::from_uci_moves(None, &moves, BTreeMap::new()) {
@@ -360,10 +374,10 @@ impl<E: LiveEngine> Worker<E> {
             if self.analyses[index].is_none()
                 && let Some(terminal) = terminal_analysis(&self.game.position(index))
             {
-                self.commit(index, terminal);
+                self.analyses[index] = Some(terminal);
             }
         }
-        self.reclassify();
+        self.resend_known();
         if usable {
             self.plan();
         }
@@ -462,21 +476,47 @@ impl<E: LiveEngine> Worker<E> {
         }
     }
 
-    /// Stores an analysis, reports it, and re-classifies the moves it affects.
-    fn commit(&mut self, index: usize, analysis: PositionAnalysis) {
+    /// The event that reports `analysis` of position `index`.
+    fn position_event(&self, index: usize, analysis: &PositionAnalysis) -> LiveEvent {
         let position = self.game.position(index);
-        let lines = analysis
-            .lines
-            .iter()
-            .map(|line| live_line(&position, line))
-            .collect();
-        self.emit(LiveEvent::Position {
+        LiveEvent::Position {
             revision: self.revision,
             index,
             depth: analysis.lines[0].depth,
-            lines,
-        });
+            lines: analysis
+                .lines
+                .iter()
+                .map(|line| live_line(&position, line))
+                .collect(),
+        }
+    }
+
+    /// Stores an analysis, reports it, and re-classifies the moves it affects.
+    fn commit(&mut self, index: usize, analysis: PositionAnalysis) {
+        let event = self.position_event(index, &analysis);
+        self.emit(event);
         self.analyses[index] = Some(analysis);
+        self.reclassify();
+    }
+
+    /// Reports everything known about the game again, under the current revision. A consumer
+    /// moves to a new revision the moment its user acts, so whatever this session sent under
+    /// the old one in the meantime was dropped, and would never be sent again.
+    fn resend_known(&mut self) {
+        let events: Vec<LiveEvent> = self
+            .analyses
+            .iter()
+            .enumerate()
+            .filter_map(|(index, analysis)| {
+                analysis
+                    .as_ref()
+                    .map(|analysis| self.position_event(index, analysis))
+            })
+            .collect();
+        for event in events {
+            self.emit(event);
+        }
+        self.sent.fill(None);
         self.reclassify();
     }
 
@@ -822,9 +862,23 @@ mod tests {
             .into_iter()
             .filter(|e| matches!(e, LiveEvent::Position { revision: 3, .. }))
             .collect();
+        // The kept positions are sent again exactly as they were, and the search that restarts
+        // finds nothing deeper than the stored 20 to replace them with.
+        let depths_of = |index: usize| -> Vec<u32> {
+            later
+                .iter()
+                .filter_map(|e| match e {
+                    LiveEvent::Position {
+                        index: i, depth, ..
+                    } if *i == index => Some(*depth),
+                    _ => None,
+                })
+                .collect()
+        };
+        assert_eq!(depths_of(1), [20], "{later:?}");
         assert!(
-            later.is_empty(),
-            "nothing deeper than the stored 20 exists: {later:?}"
+            depths_of(2).is_empty(),
+            "the taken-back position is gone: {later:?}"
         );
     }
 
@@ -1086,6 +1140,104 @@ mod tests {
         assert!(Arc::strong_count(&sink) > 1, "the thread holds the sink");
         drop(session);
         assert_eq!(Arc::strong_count(&sink), 1);
+    }
+
+    #[test]
+    fn a_new_update_resends_what_it_keeps_under_its_own_revision() {
+        // Anything sent under the old revision after the consumer moved on was dropped by it,
+        // and nothing would send it again; so what is kept is sent again.
+        let rig = rig(&Opinions::default());
+        rig.session.set_moves(1, moves(&[E4]));
+        rig.sink.wait_for("move 1 deep", |e| position_at(e, 1, 20));
+
+        rig.session.set_moves(2, moves(&[E4, E5]));
+        let events = rig.sink.wait_for("the kept positions and move again", |e| {
+            let again = |index: usize, depth: u32| {
+                e.iter().any(|ev| {
+                    matches!(ev, LiveEvent::Position { revision: 2, index: i, depth: d, .. }
+                        if *i == index && *d >= depth)
+                })
+            };
+            again(0, 12)
+                && again(1, 20)
+                && e.iter().any(|ev| {
+                    matches!(ev, LiveEvent::Move { revision: 2, review, .. } if review.ply == 1)
+                })
+        });
+        assert!(
+            !events
+                .iter()
+                .any(|ev| matches!(ev, LiveEvent::Error { .. })),
+            "{events:#?}"
+        );
+    }
+
+    #[test]
+    fn repeating_the_same_moves_resends_what_is_known_under_the_new_revision() {
+        let rig = rig(&Opinions::default());
+        rig.session.set_moves(1, moves(&[E4]));
+        rig.sink.wait_for("move 1 deep", |e| position_at(e, 1, 20));
+        let starts = rig.starts().len();
+
+        rig.session.set_moves(2, moves(&[E4]));
+        rig.sink.wait_for("the position again", |e| {
+            e.iter().any(|ev| {
+                matches!(
+                    ev,
+                    LiveEvent::Position {
+                        revision: 2,
+                        index: 1,
+                        depth: 20,
+                        ..
+                    }
+                )
+            })
+        });
+        assert_eq!(rig.starts().len(), starts, "nothing is searched again");
+    }
+
+    #[test]
+    fn an_update_from_an_older_revision_is_ignored() {
+        // Commands can overtake each other on the way here; the newest revision must win.
+        let rig = rig(&Opinions::default());
+        rig.session.set_moves(2, moves(&[E4, E5]));
+        rig.sink.wait_for("move 2 deep", |e| position_at(e, 2, 20));
+        let starts = rig.starts().len();
+
+        rig.session.set_moves(1, moves(&[E4]));
+        std::thread::sleep(Duration::from_millis(300));
+        assert_eq!(
+            rig.starts().len(),
+            starts,
+            "an older update must not start a search"
+        );
+        let revision_of = |e: &LiveEvent| match e {
+            LiveEvent::Position { revision, .. }
+            | LiveEvent::Move { revision, .. }
+            | LiveEvent::Error { revision, .. } => *revision,
+        };
+        assert!(rig.sink.events().iter().all(|e| revision_of(e) == 2));
+    }
+
+    #[test]
+    fn a_session_says_whether_its_worker_is_still_running() {
+        let rig = rig(&Opinions::default());
+        rig.session.set_moves(1, moves(&[E4]));
+        rig.sink.wait_for("move 1 deep", |e| position_at(e, 1, 20));
+        assert!(rig.session.is_running());
+
+        // A session whose worker panicked cannot be asked anything any more; the shell needs
+        // to see that, so that "restart" builds a new one instead of writing to a dead channel.
+        let engine = ScriptedLiveEngine::new(|_| panic!("the script blew up"));
+        let sink = Arc::new(Collect::default());
+        let dead = LiveSession::start(engine, sink.clone(), config());
+        dead.set_moves(1, moves(&[E4]));
+        sink.wait_for("the report", |e| !e.is_empty());
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while dead.is_running() {
+            assert!(Instant::now() < deadline, "the worker never ended");
+            std::thread::sleep(Duration::from_millis(5));
+        }
     }
 
     #[test]
