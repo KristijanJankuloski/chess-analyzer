@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 use std::io::Cursor;
 use std::ops::ControlFlow;
+use std::path::Path;
 
 use pgn_reader::{RawTag, Reader, SanPlus, Visitor};
 use serde::{Deserialize, Serialize};
@@ -96,6 +97,29 @@ pub fn decode_pgn_bytes(bytes: &[u8]) -> String {
         Ok(text) => text.to_string(),
         Err(_) => bytes.iter().map(|&b| char::from(b)).collect(),
     }
+}
+
+/// The largest PGN file the app will open. A game database can run to gigabytes; reviewing one
+/// game at a time is the job, and reading all of that into memory would freeze the window.
+pub const MAX_PGN_BYTES: u64 = 64 * 1024 * 1024;
+
+/// Reads a PGN file, refusing one larger than `max_bytes` without reading it, and decodes it
+/// (UTF-8, or Latin-1 for older exports).
+pub fn read_pgn_file(path: &Path, max_bytes: u64) -> Result<String, GameError> {
+    let shown = path.display();
+    let size = std::fs::metadata(path)
+        .map_err(|e| GameError::Read(format!("could not read {shown}: {e}")))?
+        .len();
+    if size > max_bytes {
+        return Err(GameError::Read(format!(
+            "{shown} is too large ({} MB; the limit is {} MB)",
+            size / (1024 * 1024),
+            max_bytes / (1024 * 1024)
+        )));
+    }
+    let bytes =
+        std::fs::read(path).map_err(|e| GameError::Read(format!("could not read {shown}: {e}")))?;
+    Ok(decode_pgn_bytes(&bytes))
 }
 
 /// Parses the games in the PGN text. Variations and comments are ignored. Games without any
@@ -461,6 +485,59 @@ mod tests {
         assert_eq!(decode_pgn_bytes("Zoë Müller".as_bytes()), "Zoë Müller");
         assert_eq!(decode_pgn_bytes(b"Mu\xf1oz"), "Muñoz");
     }
+    fn temp_file(name: &str, bytes: &[u8]) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("chess-analyzer-pgn-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(name);
+        std::fs::write(&path, bytes).unwrap();
+        path
+    }
+
+    #[test]
+    fn a_pgn_file_is_read_and_decoded() {
+        let path = temp_file("latin1.pgn", b"[White \"Mu\xf1oz\"]\n\n1. e4 *\n");
+        let text = read_pgn_file(&path, MAX_PGN_BYTES).unwrap();
+        assert!(text.contains("Mu\u{f1}oz"), "{text}");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn a_pgn_file_over_the_size_limit_is_refused_before_it_is_read() {
+        let path = temp_file("big.pgn", &[b'x'; 100]);
+        let err = read_pgn_file(&path, 10).unwrap_err();
+        let GameError::Read(message) = err else {
+            panic!("unexpected {err:?}")
+        };
+        assert!(message.contains("too large"), "{message}");
+        assert!(message.contains("big.pgn"), "{message}");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn a_pgn_file_exactly_at_the_limit_is_read() {
+        let path = temp_file("exact.pgn", b"1. e4 *");
+        assert!(read_pgn_file(&path, 7).is_ok());
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn a_missing_file_or_a_folder_is_reported_with_its_path() {
+        let missing = std::env::temp_dir().join("chess-analyzer-no-such-file.pgn");
+        let GameError::Read(message) = read_pgn_file(&missing, MAX_PGN_BYTES).unwrap_err() else {
+            panic!("expected a read error")
+        };
+        assert!(
+            message.contains("chess-analyzer-no-such-file.pgn"),
+            "{message}"
+        );
+
+        let folder = std::env::temp_dir();
+        assert!(matches!(
+            read_pgn_file(&folder, MAX_PGN_BYTES),
+            Err(GameError::Read(_))
+        ));
+    }
+
     #[test]
     fn builds_a_game_from_uci_moves() {
         let moves: Vec<String> = ["e2e4", "e7e5", "g1f3"]

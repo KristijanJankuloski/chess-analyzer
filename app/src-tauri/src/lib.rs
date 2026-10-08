@@ -1,11 +1,14 @@
 //! The desktop shell: a thin layer that forwards frontend commands to `chess-analyzer-core`
 //! and core's job events back to the frontend. All behaviour worth testing lives in core.
 
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use chess_analyzer_core::cache::{CachedAnalyzer, open_database};
 use chess_analyzer_core::engine::{Analyzer, EngineError};
-use chess_analyzer_core::game::{PgnGameInfo, decode_pgn_bytes, describe_pgn};
+use chess_analyzer_core::game::{
+    MAX_PGN_BYTES, PgnGameInfo, describe_pgn, read_pgn_file as read_pgn_file_limited,
+};
 use chess_analyzer_core::jobs::{
     EngineFactory, EventSink, JobEvent, JobId, ReviewJobs, ReviewSource, StartedJob,
 };
@@ -38,18 +41,19 @@ fn message(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn parse_pgn_games(text: String) -> Result<Vec<PgnGameInfo>, String> {
     describe_pgn(&text).map_err(message)
 }
 
-#[tauri::command]
+/// Plain `#[tauri::command]`s run on the main thread, which would freeze the window while a
+/// big PGN is read or parsed; `(async)` runs them on a worker thread instead.
+#[tauri::command(async)]
 fn read_pgn_file(path: String) -> Result<String, String> {
-    let bytes = std::fs::read(&path).map_err(|e| format!("could not read {path}: {e}"))?;
-    Ok(decode_pgn_bytes(&bytes))
+    read_pgn_file_limited(Path::new(&path), MAX_PGN_BYTES).map_err(message)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn start_review(state: State<'_, AppState>, source: ReviewSource) -> Result<StartedJob, String> {
     let settings = state.settings.lock().map_err(message)?.clone();
     state.jobs.start(source, settings).map_err(message)
