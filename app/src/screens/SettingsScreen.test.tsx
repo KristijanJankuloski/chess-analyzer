@@ -22,6 +22,20 @@ describe("SettingsScreen", () => {
     expect(screen.getByLabelText("Stockfish path")).toHaveValue("");
   });
 
+  it("limits each number to what the engine accepts", async () => {
+    await setup();
+    const limits: [string, string][] = [
+      ["Depth", "60"],
+      ["Lines", "10"],
+      ["Threads", "256"],
+      ["Hash (MB)", "65536"],
+    ];
+    for (const [label, max] of limits) {
+      expect(screen.getByLabelText(label)).toHaveAttribute("min", "1");
+      expect(screen.getByLabelText(label)).toHaveAttribute("max", max);
+    }
+  });
+
   it("saves what was edited", async () => {
     const { api, user } = await setup();
     const depth = screen.getByLabelText("Depth");

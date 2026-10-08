@@ -10,6 +10,7 @@ use chess_analyzer_core::engine::{Analyzer, EngineConfig, Limits, UciEngine, loc
 use chess_analyzer_core::game::{decode_pgn_bytes, parse_pgn};
 use chess_analyzer_core::openings::OpeningBook;
 use chess_analyzer_core::review::{ReviewOptions, review_game};
+use chess_analyzer_core::settings::{MAX_DEPTH, MAX_HASH_MB, MAX_MULTIPV, MAX_THREADS};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -35,14 +36,14 @@ struct ReviewArgs {
     /// Which game to review when the PGN holds several (1-based).
     #[arg(long, default_value_t = 1)]
     game: usize,
-    #[arg(long, default_value_t = 20, value_parser = clap::value_parser!(u32).range(1..))]
+    #[arg(long, default_value_t = 20, value_parser = clap::value_parser!(u32).range(1..=i64::from(MAX_DEPTH)))]
     depth: u32,
-    #[arg(long, default_value_t = 3, value_parser = clap::value_parser!(u32).range(1..))]
+    #[arg(long, default_value_t = 3, value_parser = clap::value_parser!(u32).range(1..=i64::from(MAX_MULTIPV)))]
     multipv: u32,
-    #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u32).range(1..))]
+    #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u32).range(1..=i64::from(MAX_THREADS)))]
     threads: u32,
     /// Stockfish hash size in MB.
-    #[arg(long, default_value_t = 256, value_parser = clap::value_parser!(u32).range(1..))]
+    #[arg(long, default_value_t = 256, value_parser = clap::value_parser!(u32).range(1..=i64::from(MAX_HASH_MB)))]
     hash: u32,
     /// Path to the Stockfish executable (default: STOCKFISH_PATH, then engines/stockfish).
     #[arg(long)]
@@ -161,6 +162,32 @@ mod tests {
         for flag in ["--depth", "--multipv", "--threads", "--hash"] {
             assert!(parse(&[flag, "0"]).is_err(), "{flag} 0 should be rejected");
         }
+    }
+
+    #[test]
+    fn numbers_above_what_the_engine_accepts_are_rejected() {
+        for (flag, too_big) in [
+            ("--depth", "61"),
+            ("--multipv", "11"),
+            ("--threads", "257"),
+            ("--hash", "65537"),
+        ] {
+            assert!(
+                parse(&[flag, too_big]).is_err(),
+                "{flag} {too_big} should be rejected"
+            );
+        }
+        let at_the_limits = parse(&[
+            "--depth",
+            "60",
+            "--multipv",
+            "10",
+            "--threads",
+            "256",
+            "--hash",
+            "65536",
+        ]);
+        assert!(at_the_limits.is_ok());
     }
 
     #[test]

@@ -18,6 +18,14 @@ pub enum SettingsError {
     Corrupt(String),
 }
 
+/// Upper limits for the numeric settings. They keep a typo (or a hand-edited file) from asking
+/// Stockfish for a search that can never finish or for more memory than any machine has. The
+/// Settings screen in `app/src/screens/SettingsScreen.tsx` repeats them as `max` attributes.
+pub const MAX_DEPTH: u32 = 60;
+pub const MAX_MULTIPV: u32 = 10;
+pub const MAX_THREADS: u32 = 256;
+pub const MAX_HASH_MB: u32 = 65_536;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
 #[serde(default)]
@@ -46,14 +54,16 @@ impl Default for Settings {
 
 impl Settings {
     pub fn validate(&self) -> Result<(), SettingsError> {
-        for (name, value) in [
-            ("threads", self.threads),
-            ("hash_mb", self.hash_mb),
-            ("depth", self.depth),
-            ("multipv", self.multipv),
+        for (name, value, max) in [
+            ("threads", self.threads, MAX_THREADS),
+            ("hash_mb", self.hash_mb, MAX_HASH_MB),
+            ("depth", self.depth, MAX_DEPTH),
+            ("multipv", self.multipv, MAX_MULTIPV),
         ] {
-            if value == 0 {
-                return Err(SettingsError::Invalid(format!("{name} must be at least 1")));
+            if !(1..=max).contains(&value) {
+                return Err(SettingsError::Invalid(format!(
+                    "{name} must be between 1 and {max}"
+                )));
             }
         }
         Ok(())
@@ -185,6 +195,66 @@ mod tests {
             let err = s.validate().unwrap_err();
             assert!(err.to_string().contains(field), "{err}");
         }
+    }
+
+    #[test]
+    fn values_above_the_limits_are_invalid() {
+        let over = [
+            (
+                "depth",
+                Settings {
+                    depth: MAX_DEPTH + 1,
+                    ..Settings::default()
+                },
+            ),
+            (
+                "multipv",
+                Settings {
+                    multipv: MAX_MULTIPV + 1,
+                    ..Settings::default()
+                },
+            ),
+            (
+                "threads",
+                Settings {
+                    threads: MAX_THREADS + 1,
+                    ..Settings::default()
+                },
+            ),
+            (
+                "hash_mb",
+                Settings {
+                    hash_mb: MAX_HASH_MB + 1,
+                    ..Settings::default()
+                },
+            ),
+        ];
+        for (field, settings) in over {
+            let err = settings.validate().unwrap_err();
+            assert!(matches!(err, SettingsError::Invalid(_)), "{field}: {err}");
+            assert!(err.to_string().contains(field), "{err}");
+        }
+    }
+
+    #[test]
+    fn the_limits_themselves_are_allowed() {
+        let at_the_limits = Settings {
+            engine_path: None,
+            threads: MAX_THREADS,
+            hash_mb: MAX_HASH_MB,
+            depth: MAX_DEPTH,
+            multipv: MAX_MULTIPV,
+        };
+        assert!(at_the_limits.validate().is_ok());
+    }
+
+    #[test]
+    fn a_settings_file_with_an_absurd_value_is_refused_not_trusted() {
+        let (dir, file) = temp_file("absurd");
+        std::fs::create_dir_all(file.path.parent().unwrap()).unwrap();
+        std::fs::write(&file.path, r#"{"depth": 5000}"#).unwrap();
+        assert!(matches!(file.load(), Err(SettingsError::Invalid(_))));
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

@@ -10,11 +10,12 @@ export interface SettingsScreenProps {
 
 type NumberField = "threads" | "hash_mb" | "depth" | "multipv";
 
-const FIELDS: { key: NumberField; label: string; hint: string }[] = [
-  { key: "depth", label: "Depth", hint: "How deep Stockfish searches each position. Higher is stronger and slower." },
-  { key: "multipv", label: "Lines", hint: "Alternative moves analysed per position. Great moves need at least 2." },
-  { key: "threads", label: "Threads", hint: "CPU threads Stockfish may use." },
-  { key: "hash_mb", label: "Hash (MB)", hint: "Memory Stockfish may use." },
+// The upper limits repeat `MAX_*` in crates/core/src/settings.rs, which refuses anything above them.
+const FIELDS: { key: NumberField; label: string; hint: string; max: number }[] = [
+  { key: "depth", label: "Depth", hint: "How deep Stockfish searches each position. Higher is stronger and slower.", max: 60 },
+  { key: "multipv", label: "Lines", hint: "Alternative moves analysed per position. Great moves need at least 2.", max: 10 },
+  { key: "threads", label: "Threads", hint: "CPU threads Stockfish may use.", max: 256 },
+  { key: "hash_mb", label: "Hash (MB)", hint: "Memory Stockfish may use.", max: 65536 },
 ];
 
 export function SettingsScreen({ api, onDone }: SettingsScreenProps) {
@@ -69,13 +70,14 @@ export function SettingsScreen({ api, onDone }: SettingsScreenProps) {
         )}
       </div>
 
-      {FIELDS.map(({ key, label, hint }) => (
+      {FIELDS.map(({ key, label, hint, max }) => (
         <div className="settings__field" key={key}>
           <label htmlFor={`setting-${key}`}>{label}</label>
           <input
             id={`setting-${key}`}
             type="number"
             min={1}
+            max={max}
             value={settings[key]}
             onChange={(e) => setSettings({ ...settings, [key]: Number(e.target.value) })}
           />
