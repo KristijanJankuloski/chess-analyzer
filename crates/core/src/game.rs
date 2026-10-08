@@ -20,6 +20,8 @@ pub enum GameError {
     Empty,
     #[error("could not read the PGN: {0}")]
     Read(String),
+    #[error("unsupported variant {0:?}: only standard chess is supported")]
+    UnsupportedVariant(String),
     #[error("invalid FEN: {0}")]
     InvalidFen(String),
     #[error("illegal or unreadable move {mv:?} at ply {ply}")]
@@ -82,6 +84,14 @@ impl Game {
             builder.push(mv);
         }
         Ok(builder.finish())
+    }
+}
+
+/// Decodes the bytes of a PGN file: UTF-8 if valid, otherwise Latin-1 (older PGN exports use it).
+pub fn decode_pgn_bytes(bytes: &[u8]) -> String {
+    match std::str::from_utf8(bytes) {
+        Ok(text) => text.to_string(),
+        Err(_) => bytes.iter().map(|&b| char::from(b)).collect(),
     }
 }
 
@@ -184,7 +194,14 @@ impl Visitor for GameVisitor {
     ) -> ControlFlow<Self::Output> {
         let name = String::from_utf8_lossy(name).into_owned();
         let value = value.decode_utf8_lossy().into_owned();
-        if name == "FEN" {
+        if name == "Variant" && tags.error.is_none() {
+            let standard =
+                ["", "standard", "from position"].contains(&value.trim().to_lowercase().as_str());
+            if !standard {
+                tags.error = Some(GameError::UnsupportedVariant(value.clone()));
+            }
+        }
+        if name == "FEN" && tags.error.is_none() {
             match parse_fen(&value) {
                 Ok(pos) => tags.start = Some(pos),
                 Err(e) => tags.error = Some(e),
@@ -372,6 +389,39 @@ mod tests {
         let games = parse_pgn(pgn).unwrap();
         assert_eq!(games.len(), 1);
         assert_eq!(games[0].headers["Event"], "B");
+    }
+
+    #[test]
+    fn variants_other_than_standard_chess_are_rejected() {
+        for variant in [
+            "Antichess",
+            "Chess960",
+            "Fischerandom",
+            "Crazyhouse",
+            "Atomic",
+        ] {
+            let pgn = format!("[Variant \"{variant}\"]\n\n1. e4 e5 2. Nf3 Nc6 *\n");
+            let err = parse_pgn(&pgn).unwrap_err();
+            assert_eq!(
+                err,
+                GameError::UnsupportedVariant(variant.to_string()),
+                "{variant}"
+            );
+        }
+    }
+
+    #[test]
+    fn standard_chess_variant_tags_are_accepted() {
+        for variant in ["Standard", "standard", "From Position", ""] {
+            let pgn = format!("[Variant \"{variant}\"]\n\n1. e4 e5 *\n");
+            assert_eq!(parse_pgn(&pgn).unwrap()[0].moves.len(), 2, "{variant:?}");
+        }
+    }
+
+    #[test]
+    fn decoding_keeps_utf8_and_falls_back_to_latin_1() {
+        assert_eq!(decode_pgn_bytes("Zoë Müller".as_bytes()), "Zoë Müller");
+        assert_eq!(decode_pgn_bytes(b"Mu\xf1oz"), "Muñoz");
     }
     #[test]
     fn builds_a_game_from_uci_moves() {

@@ -21,6 +21,8 @@ pub enum ReviewError {
     Engine(#[from] EngineError),
     #[error("the review was cancelled")]
     Cancelled,
+    #[error("invalid review options: {0}")]
+    InvalidOptions(String),
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -142,6 +144,12 @@ pub fn review_game(
     cancel: &AtomicBool,
     mut on_progress: impl FnMut(Progress),
 ) -> Result<Review, ReviewError> {
+    // Stockfish treats `go depth 0` as unbounded, which would spin until the timeout.
+    if options.limits.depth == 0 || options.limits.multipv == 0 {
+        return Err(ReviewError::InvalidOptions(
+            "depth and MultiPV must each be at least 1".to_string(),
+        ));
+    }
     let n = game.moves.len();
     let total = n + 1;
 
@@ -181,11 +189,18 @@ pub fn review_game(
         let lines = &analyses[i].lines;
         let best = &lines[0];
 
-        let eval_after = lines
-            .iter()
-            .find(|l| l.pv.first() == Some(&played.uci))
-            .map(|l| l.eval)
-            .unwrap_or(analyses[i + 1].lines[0].eval);
+        // A move that ends the game is scored by the game's result, not by the engine's
+        // "mate in 1" for the position before it; otherwise prefer the engine line for the
+        // played move (same search as `best`), falling back to the next position's best line.
+        let next_best = analyses[i + 1].lines[0].eval;
+        let eval_after = if terminal_analysis(&after).is_some() {
+            next_best
+        } else {
+            lines
+                .iter()
+                .find(|l| l.pv.first() == Some(&played.uci))
+                .map_or(next_best, |l| l.eval)
+        };
 
         let material_swing = {
             let start = balance(&before, before.turn());
@@ -389,6 +404,50 @@ mod tests {
         assert_eq!(review.moves[0].move_number, 7);
         assert_eq!(review.moves[1].side, Side::White);
         assert_eq!(review.moves[1].move_number, 8);
+    }
+
+    #[test]
+    fn the_mating_move_ends_in_checkmate_not_mate_in_one() {
+        let review = run(
+            "1. f3 e5 2. g4 Qh4# 0-1",
+            fools_mate_script(),
+            &OpeningBook::empty(),
+        );
+        assert_eq!(review.moves[3].san, "Qh4#");
+        assert_eq!(review.moves[3].eval_after, Eval::Checkmate(Side::Black));
+        assert_eq!(review.moves[3].eval_after, *review.evals.last().unwrap());
+    }
+
+    #[test]
+    fn zero_depth_or_multipv_is_rejected_before_analysing() {
+        let game = parse_pgn("1. e4 *").unwrap().remove(0);
+        for limits in [
+            Limits {
+                depth: 0,
+                multipv: 3,
+            },
+            Limits {
+                depth: 20,
+                multipv: 0,
+            },
+        ] {
+            let mut analyzer = ScriptedAnalyzer::new(vec![flat("e2e4"), flat("e7e5")]);
+            let options = ReviewOptions {
+                limits,
+                ..ReviewOptions::default()
+            };
+            let err = review_game(
+                &game,
+                &mut analyzer,
+                &options,
+                &OpeningBook::empty(),
+                &AtomicBool::new(false),
+                |_| {},
+            )
+            .unwrap_err();
+            assert!(matches!(err, ReviewError::InvalidOptions(_)), "{err:?}");
+            assert_eq!(analyzer.calls, 0);
+        }
     }
     #[test]
     fn a_sound_sacrifice_is_brilliant() {
