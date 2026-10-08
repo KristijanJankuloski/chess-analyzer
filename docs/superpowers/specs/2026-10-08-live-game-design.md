@@ -18,7 +18,7 @@ Core principle (from `AGENTS.md`) is unchanged: Stockfish is the authority on ch
 | Who plays | Nobody in the app. The user enters both sides' moves. No engine opponent, no strength setting. |
 | Entry | Click or drag on the board, or type SAN (`Nf3`, `O-O`, `exd5`) into a box. Take-back is supported. |
 | Class badges | Every entered move gets a class badge. The latest move's badge is **provisional** while the search is still deepening; earlier badges are frozen when the next move arrives. |
-| Arrows | Green: the engine's best move for the side to move now. Red: the move the last mover should have played, only when their move was an inaccuracy, mistake, miss or blunder. |
+| Arrows | Green: the engine's best move for the side to move now. Red: the move the last mover should have played, only when their move was an inaccuracy, mistake, miss or blunder. A "Current best move" toggle hides the green arrow only; the red one is about the move just made and always shows. |
 | Engine approach | One persistent Stockfish that is told to analyse the live position until the next move arrives. Rejected: one-shot fixed-depth runs per move (nothing updates during a long think); Stockfish in the browser (breaks the native-engine decision). |
 | Joining mid-game | When several moves arrive at once, only the last position gets the deep analysis. Earlier positions get a quick shallow pass, so every move still has a provisional badge. |
 | Depth | The live position is searched with no depth limit until the next move, take-back or pause. The depth setting continues to apply to the full review only. Depths below `MIN_SHOWN_DEPTH` (8) are not shown: the evaluation jumps around there and a move would flash through several classes. |

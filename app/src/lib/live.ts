@@ -146,8 +146,12 @@ export interface LiveBoard {
   missArrow: SquarePair | null;
 }
 
-/** What the board shows after `ply` half-moves (0 = the start). */
-export function liveBoard(view: LiveView, ply: number, showArrows: boolean): LiveBoard {
+/**
+ * What the board shows after `ply` half-moves (0 = the start). `showNext` is about the engine's
+ * best move now only; the arrow for the move that should have been played instead of the last
+ * one is about the move just made, and is always drawn.
+ */
+export function liveBoard(view: LiveView, ply: number, showNext: boolean): LiveBoard {
   const base = boardView(view.data, ply, false);
   const best = view.positions[ply]?.lines[0]?.pv[0] ?? null;
   const last = ply > 0 ? view.data.moves[ply - 1] : null;
@@ -157,7 +161,7 @@ export function liveBoard(view: LiveView, ply: number, showArrows: boolean): Liv
     fen: base.fen,
     lastMove: base.lastMove,
     badge: base.badge && { ...base.badge, provisional: view.provisional[ply - 1] ?? true },
-    nextArrow: showArrows && best ? uciSquares(best) : null,
-    missArrow: showArrows && regretted && last?.best_uci ? uciSquares(last.best_uci) : null,
+    nextArrow: showNext && best ? uciSquares(best) : null,
+    missArrow: regretted && last?.best_uci ? uciSquares(last.best_uci) : null,
   };
 }

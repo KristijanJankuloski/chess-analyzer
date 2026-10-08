@@ -196,11 +196,17 @@ describe("LiveScreen", () => {
       expect(screen.getByLabelText("Black accuracy")).toHaveTextContent("90.0");
     });
 
-    it("hides the arrows on request", async () => {
+    it("hides the engine's current best move on request but keeps the arrow for the move just played", async () => {
       const user = userEvent.setup();
       render(<Harness live={ANALYSED} initial={withMoves(...MOVES)} />);
-      await user.click(screen.getByRole("checkbox", { name: "Best move" }));
-      expect(lastBoardOptions().arrows).toEqual([]);
+      expect(lastBoardOptions().arrows).toHaveLength(2);
+
+      await user.click(screen.getByRole("checkbox", { name: "Current best move" }));
+      const arrows = lastBoardOptions().arrows ?? [];
+      expect(arrows.map((a) => `${a.startSquare}${a.endSquare}`)).toEqual(["c7c5"]);
+
+      await user.click(screen.getByRole("checkbox", { name: "Current best move" }));
+      expect(lastBoardOptions().arrows).toHaveLength(2);
     });
 
     it("shows nothing for moves the engine has not looked at yet", () => {

@@ -203,11 +203,19 @@ describe("what the board shows", () => {
     expect(liveBoard(liveView(state, game(...moves)), 2, true).missArrow).toBeNull();
   });
 
-  it("hides both arrows on request", () => {
+  it("hides only the engine's best move on request, and still shows what should have been played", () => {
     const board = liveBoard(liveView(analysed(), game(...moves)), 2, false);
     expect(board.nextArrow).toBeNull();
-    expect(board.missArrow).toBeNull();
+    expect(board.missArrow).toEqual({ from: "c7", to: "c5" });
     expect(board.badge).not.toBeNull();
+  });
+
+  it("shows no arrow at all when the best move is hidden and the last move was fine", () => {
+    let state = analysed();
+    state = applyLiveEvent(state, move(1, review(2, "e7e5", "good", "c7c5")));
+    const board = liveBoard(liveView(state, game(...moves)), 2, false);
+    expect(board.nextArrow).toBeNull();
+    expect(board.missArrow).toBeNull();
   });
 
   it("shows the start with no badge, last move or red arrow", () => {

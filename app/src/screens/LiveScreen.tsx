@@ -46,7 +46,7 @@ export function LiveScreen({ draft, onDraftChange, live, onRestart, onReview, on
   const entry = useBoardEntry(recording, (next) => update({ recording: next }));
 
   const [orientation, setOrientation] = useState<"white" | "black">("white");
-  const [showArrows, setShowArrows] = useState(true);
+  const [showNext, setShowNext] = useState(true);
   const [confirmingNew, setConfirmingNew] = useState(false);
   const [text, setText] = useState("");
   const [refusal, setRefusal] = useState<string | null>(null);
@@ -62,7 +62,7 @@ export function LiveScreen({ draft, onDraftChange, live, onRestart, onReview, on
   const headers = { white, black, result };
   const game = useMemo(() => recordedGame(recording, headers), [recording, white, black, result]);
   const view = useMemo(() => liveView(live, game), [live, game]);
-  const board = liveBoard(view, ply, showArrows);
+  const board = liveBoard(view, ply, showNext);
   const rows = useMemo(() => moveRows(view.data, view.provisional), [view]);
 
   const select = (next: number) => setLooking(next >= moveCount ? null : Math.max(next, 0));
@@ -170,8 +170,9 @@ export function LiveScreen({ draft, onDraftChange, live, onRestart, onReview, on
             last={moveCount}
             onSelect={select}
             onFlip={() => setOrientation((o) => (o === "white" ? "black" : "white"))}
-            showBest={showArrows}
-            onToggleBest={() => setShowArrows((s) => !s)}
+            showBest={showNext}
+            onToggleBest={() => setShowNext((s) => !s)}
+            toggleLabel="Current best move"
           />
           <div className="nav-controls">
             <button

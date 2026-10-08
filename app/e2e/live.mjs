@@ -76,6 +76,15 @@ const [green, red] = [await arrows(GREEN_ARROW), await arrows(RED_ARROW)];
 log("arrows on the board: green", green, "red", red);
 if (green !== 1) fail(`expected one green arrow (the best next move), saw ${green}`);
 if (red !== 1) fail(`expected one red arrow (the move that should have been played), saw ${red}`);
+
+// Hiding the engine's current best move leaves only the arrow for the move just played.
+const toggle = () => page.click(".nav-controls__toggle input");
+await toggle();
+const [greenOff, redOff] = [await arrows(GREEN_ARROW), await arrows(RED_ARROW)];
+log("with the current best move hidden: green", greenOff, "red", redOff);
+if (greenOff !== 0 || redOff !== 1) fail(`expected only the red arrow, saw green ${greenOff} red ${redOff}`);
+await toggle();
+if ((await arrows(GREEN_ARROW)) !== 1) fail("the green arrow should come back");
 const lines = await page.evaluate(() =>
   [...document.querySelectorAll(".live-lines__line")].map((e) => e.textContent),
 );

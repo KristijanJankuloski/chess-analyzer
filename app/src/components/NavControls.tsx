@@ -8,6 +8,8 @@ export interface NavControlsProps {
   onFlip: () => void;
   showBest: boolean;
   onToggleBest: () => void;
+  /** What the toggle is called. Defaults to "Best move". */
+  toggleLabel?: string;
 }
 
 function isTyping(target: EventTarget | null): boolean {
@@ -18,7 +20,15 @@ function isTyping(target: EventTarget | null): boolean {
 }
 
 /** First / previous / next / last buttons, with the arrow keys as shortcuts. */
-export function NavControls({ ply, last, onSelect, onFlip, showBest, onToggleBest }: NavControlsProps) {
+export function NavControls({
+  ply,
+  last,
+  onSelect,
+  onFlip,
+  showBest,
+  onToggleBest,
+  toggleLabel = "Best move",
+}: NavControlsProps) {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
@@ -61,7 +71,7 @@ export function NavControls({ ply, last, onSelect, onFlip, showBest, onToggleBes
       </button>
       <label className="nav-controls__toggle">
         <input type="checkbox" checked={showBest} onChange={onToggleBest} />
-        Best move
+        {toggleLabel}
       </label>
     </div>
   );
