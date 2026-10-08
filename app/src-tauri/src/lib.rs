@@ -5,6 +5,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use chess_analyzer_core::cache::{CachedAnalyzer, open_database};
+use chess_analyzer_core::classify::Thresholds;
 use chess_analyzer_core::engine::{Analyzer, EngineError};
 use chess_analyzer_core::game::{
     MAX_PGN_BYTES, PgnGameInfo, describe_pgn, read_pgn_file as read_pgn_file_limited,
@@ -12,13 +13,15 @@ use chess_analyzer_core::game::{
 use chess_analyzer_core::jobs::{
     EngineFactory, EventSink, JobEvent, JobId, ReviewJobs, ReviewSource, StartedJob,
 };
+use chess_analyzer_core::live::{LiveConfig, LiveEvent, LiveSession, LiveSink};
 use chess_analyzer_core::openings::OpeningBook;
 use chess_analyzer_core::settings::{EngineStatus, Settings, SettingsFile, check_engine};
 use chess_analyzer_core::store::{GameStore, GameSummary, StoredGame};
 use tauri::{Emitter, Manager, State};
 
-/// The event name the frontend listens on.
+/// The event names the frontend listens on.
 const REVIEW_EVENT: &str = "review-event";
+const LIVE_EVENT: &str = "live-event";
 
 struct TauriSink(tauri::AppHandle);
 
@@ -30,11 +33,48 @@ impl EventSink for TauriSink {
     }
 }
 
+struct TauriLiveSink(tauri::AppHandle);
+
+impl LiveSink for TauriLiveSink {
+    fn emit(&self, event: LiveEvent) {
+        if let Err(e) = self.0.emit(LIVE_EVENT, &event) {
+            eprintln!("could not send {LIVE_EVENT}: {e}");
+        }
+    }
+}
+
+/// The settings a live session was built from. Changing any of them means a new engine.
+#[derive(PartialEq)]
+struct EngineKey {
+    engine_path: Option<String>,
+    threads: u32,
+    hash_mb: u32,
+    multipv: u32,
+}
+
+impl EngineKey {
+    fn of(settings: &Settings) -> EngineKey {
+        EngineKey {
+            engine_path: settings.engine_path.clone(),
+            threads: settings.threads,
+            hash_mb: settings.hash_mb,
+            multipv: settings.multipv,
+        }
+    }
+}
+
+struct RunningLive {
+    session: LiveSession,
+    key: EngineKey,
+}
+
 struct AppState {
     jobs: ReviewJobs,
     store: Arc<Mutex<GameStore>>,
     settings: Mutex<Settings>,
     settings_file: SettingsFile,
+    handle: tauri::AppHandle,
+    live: Mutex<Option<RunningLive>>,
 }
 
 fn message(e: impl std::fmt::Display) -> String {
@@ -101,6 +141,54 @@ fn save_settings(state: State<'_, AppState>, settings: Settings) -> Result<Setti
     Ok(settings)
 }
 
+/// Tells the live analysis the complete list of moves (UCI) so far, starting it on first use.
+/// Starting the engine takes a moment, so this runs off the main thread.
+#[tauri::command(async)]
+fn live_update(
+    state: State<'_, AppState>,
+    revision: u64,
+    moves: Vec<String>,
+) -> Result<(), String> {
+    let settings = state.settings.lock().map_err(message)?.clone();
+    settings.validate().map_err(message)?;
+    let key = EngineKey::of(&settings);
+    let mut live = state.live.lock().map_err(message)?;
+    if live
+        .as_ref()
+        .is_none_or(|running| running.key != key || !running.session.is_running())
+    {
+        // Stop the old engine before the next one starts (a session whose worker died after an
+        // internal error is replaced too, so that asking again works).
+        *live = None;
+        let engine = settings.start_engine().map_err(message)?;
+        let config = LiveConfig {
+            multipv: settings.multipv,
+            thresholds: Thresholds::default(),
+            book: OpeningBook::bundled(),
+        };
+        let sink = Arc::new(TauriLiveSink(state.handle.clone()));
+        *live = Some(RunningLive {
+            session: LiveSession::start(engine, sink, config),
+            key,
+        });
+    }
+    if let Some(running) = live.as_ref() {
+        running.session.set_moves(revision, moves);
+    }
+    Ok(())
+}
+
+/// Stops searching while keeping the analyses (the user went to another screen). It runs off
+/// the main thread because `live_update` can hold the session while an engine starts or stops,
+/// and the window must not wait for that.
+#[tauri::command(async)]
+fn live_pause(state: State<'_, AppState>) -> Result<(), String> {
+    if let Some(running) = state.live.lock().map_err(message)?.as_ref() {
+        running.session.pause();
+    }
+    Ok(())
+}
+
 /// Starting the engine takes a moment, so it runs off the main thread.
 #[tauri::command]
 async fn check_engine_status(state: State<'_, AppState>) -> Result<EngineStatus, String> {
@@ -149,6 +237,8 @@ pub fn run() {
                 store,
                 settings: Mutex::new(settings),
                 settings_file,
+                handle: app.handle().clone(),
+                live: Mutex::new(None),
             });
             Ok(())
         })
@@ -163,6 +253,8 @@ pub fn run() {
             get_settings,
             save_settings,
             check_engine_status,
+            live_update,
+            live_pause,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the Chess Analyzer app");

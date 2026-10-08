@@ -2,12 +2,17 @@
 //!
 //! `Analyzer` is the seam the rest of the crate depends on. `UciEngine` is the real
 //! implementation; `ScriptedAnalyzer` is a canned one for tests.
+//!
+//! `LiveEngine` is the second seam, for a search that keeps running until it is interrupted
+//! (following a game as it is played). `UciEngine` implements both; `ScriptedLiveEngine` is
+//! the canned one for tests.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
@@ -79,6 +84,54 @@ impl<T: Analyzer + ?Sized> Analyzer for Box<T> {
 
     fn engine_id(&self) -> String {
         (**self).engine_id()
+    }
+}
+
+/// How long a live search runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchLimit {
+    Depth(u32),
+    /// Until the search is stopped or replaced.
+    Infinite,
+}
+
+/// What a running search reports.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SearchUpdate {
+    /// Every line of one finished depth, sorted by rank. All lines share one depth.
+    Depth(PositionAnalysis),
+    /// A depth-limited search ended on its own. An infinite search never sends this.
+    Finished,
+}
+
+/// An engine that searches until told to stop, reporting as it deepens.
+pub trait LiveEngine {
+    /// Starts searching `fen`. A search in progress is stopped first.
+    fn start(&mut self, fen: &str, multipv: u32, limit: SearchLimit) -> Result<(), EngineError>;
+    /// The next update, or `None` if nothing arrived within `wait` (or nothing is running).
+    fn poll(&mut self, wait: Duration) -> Result<Option<SearchUpdate>, EngineError>;
+    /// Stops the current search and returns once the engine is idle. Updates not yet
+    /// polled are discarded, so none of them can be mistaken for the next search's.
+    fn stop(&mut self) -> Result<(), EngineError>;
+    /// Replaces a dead or stuck engine process with a fresh one.
+    fn recover(&mut self) -> Result<(), EngineError>;
+}
+
+impl<T: LiveEngine + ?Sized> LiveEngine for Box<T> {
+    fn start(&mut self, fen: &str, multipv: u32, limit: SearchLimit) -> Result<(), EngineError> {
+        (**self).start(fen, multipv, limit)
+    }
+
+    fn poll(&mut self, wait: Duration) -> Result<Option<SearchUpdate>, EngineError> {
+        (**self).poll(wait)
+    }
+
+    fn stop(&mut self) -> Result<(), EngineError> {
+        (**self).stop()
+    }
+
+    fn recover(&mut self) -> Result<(), EngineError> {
+        (**self).recover()
     }
 }
 
@@ -231,6 +284,55 @@ fn hide_console_window(command: &mut Command) {
 #[cfg(not(windows))]
 fn hide_console_window(_command: &mut Command) {}
 
+/// How long the engine gets to answer `stop` (and the `isready` that follows it).
+const STOP_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// The live search a `UciEngine` is running, if any, and the lines gathered for the depth
+/// being reported.
+struct LiveSearch {
+    active: bool,
+    stm: Side,
+    multipv: u32,
+    depth: u32,
+    group: BTreeMap<u32, AnalysisLine>,
+    ready: VecDeque<SearchUpdate>,
+}
+
+impl LiveSearch {
+    fn idle() -> LiveSearch {
+        LiveSearch {
+            active: false,
+            stm: Side::White,
+            multipv: 1,
+            depth: 0,
+            group: BTreeMap::new(),
+            ready: VecDeque::new(),
+        }
+    }
+
+    /// Turns the gathered lines into an update.
+    fn flush(&mut self) {
+        if !self.group.is_empty() {
+            let lines = std::mem::take(&mut self.group).into_values().collect();
+            self.ready
+                .push_back(SearchUpdate::Depth(PositionAnalysis { lines }));
+        }
+    }
+
+    /// A depth is complete when all requested lines have arrived, or when the next depth starts
+    /// (a position with fewer legal moves than lines never fills up).
+    fn take(&mut self, line: AnalysisLine) {
+        if line.depth != self.depth {
+            self.flush();
+            self.depth = line.depth;
+        }
+        self.group.insert(line.rank, line);
+        if self.group.len() as u32 >= self.multipv {
+            self.flush();
+        }
+    }
+}
+
 /// A running Stockfish process.
 pub struct UciEngine {
     config: EngineConfig,
@@ -238,6 +340,7 @@ pub struct UciEngine {
     stdin: ChildStdin,
     lines: Receiver<String>,
     name: String,
+    live: LiveSearch,
 }
 
 impl UciEngine {
@@ -276,6 +379,7 @@ impl UciEngine {
             stdin,
             lines,
             name: String::new(),
+            live: LiveSearch::idle(),
         };
         engine.handshake()?;
         Ok(engine)
@@ -353,6 +457,86 @@ impl UciEngine {
         *self = fresh;
         Ok(())
     }
+
+    /// Interrupts the live search, if there is one. `stop` makes Stockfish answer with
+    /// `bestmove`; reading up to it (and then syncing with `isready`) is what keeps that
+    /// answer from being taken for the result of the next search.
+    fn stop_search(&mut self) -> Result<(), EngineError> {
+        self.live.ready.clear();
+        self.live.group.clear();
+        if !self.live.active {
+            return Ok(());
+        }
+        self.send("stop")?;
+        let deadline = Instant::now() + STOP_TIMEOUT;
+        while !self
+            .next_line(deadline, STOP_TIMEOUT)?
+            .starts_with("bestmove")
+        {}
+        self.live.active = false;
+        self.send("isready")?;
+        let deadline = Instant::now() + STOP_TIMEOUT;
+        while self.next_line(deadline, STOP_TIMEOUT)?.trim() != "readyok" {}
+        Ok(())
+    }
+}
+
+impl LiveEngine for UciEngine {
+    fn start(&mut self, fen: &str, multipv: u32, limit: SearchLimit) -> Result<(), EngineError> {
+        self.stop_search()?;
+        let multipv = multipv.max(1);
+        self.send(&format!("setoption name MultiPV value {multipv}"))?;
+        self.send(&format!("position fen {fen}"))?;
+        self.send(&match limit {
+            SearchLimit::Depth(depth) => format!("go depth {depth}"),
+            SearchLimit::Infinite => "go infinite".to_string(),
+        })?;
+        self.live = LiveSearch {
+            active: true,
+            stm: side_to_move(fen),
+            multipv,
+            ..LiveSearch::idle()
+        };
+        Ok(())
+    }
+
+    fn poll(&mut self, wait: Duration) -> Result<Option<SearchUpdate>, EngineError> {
+        if let Some(update) = self.live.ready.pop_front() {
+            return Ok(Some(update));
+        }
+        if !self.live.active {
+            return Ok(None);
+        }
+        let deadline = Instant::now() + wait;
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            let line = match self.lines.recv_timeout(remaining) {
+                Ok(line) => line,
+                Err(RecvTimeoutError::Timeout) => return Ok(None),
+                Err(RecvTimeoutError::Disconnected) => {
+                    return Err(EngineError::Io("engine exited".into()));
+                }
+            };
+            if line.starts_with("bestmove") {
+                self.live.active = false;
+                self.live.flush();
+                self.live.ready.push_back(SearchUpdate::Finished);
+            } else if let Some(parsed) = parse_info_line(&line, self.live.stm) {
+                self.live.take(parsed);
+            }
+            if let Some(update) = self.live.ready.pop_front() {
+                return Ok(Some(update));
+            }
+        }
+    }
+
+    fn stop(&mut self) -> Result<(), EngineError> {
+        self.stop_search()
+    }
+
+    fn recover(&mut self) -> Result<(), EngineError> {
+        self.restart()
+    }
 }
 
 impl Analyzer for UciEngine {
@@ -406,6 +590,105 @@ impl Analyzer for ScriptedAnalyzer {
 
     fn engine_id(&self) -> String {
         "scripted".to_string()
+    }
+}
+
+/// What a `ScriptedLiveEngine` was asked to do, shared so a test can look after the engine
+/// has moved onto another thread. The `fail_*` fields make the engine misbehave on demand.
+#[derive(Debug, Default)]
+pub struct LiveLog {
+    pub starts: Vec<(String, u32, SearchLimit)>,
+    pub stops: usize,
+    pub recoveries: usize,
+    /// The next this-many `poll` calls fail.
+    pub fail_polls: usize,
+    /// `recover` fails while this is set.
+    pub fail_recover: bool,
+}
+
+type LiveScript = dyn FnMut(&str) -> Vec<PositionAnalysis> + Send;
+
+/// A `LiveEngine` that answers from a script. For tests.
+///
+/// `script` maps a position to the analyses the engine reports for it, one per depth, in order.
+/// A depth-limited search reports those up to its depth and then finishes; an infinite search
+/// reports all of them and then stays silent, like Stockfish.
+pub struct ScriptedLiveEngine {
+    script: Box<LiveScript>,
+    queue: VecDeque<SearchUpdate>,
+    log: Arc<Mutex<LiveLog>>,
+}
+
+impl ScriptedLiveEngine {
+    pub fn new(
+        script: impl FnMut(&str) -> Vec<PositionAnalysis> + Send + 'static,
+    ) -> ScriptedLiveEngine {
+        ScriptedLiveEngine {
+            script: Box::new(script),
+            queue: VecDeque::new(),
+            log: Arc::new(Mutex::new(LiveLog::default())),
+        }
+    }
+
+    /// A handle on what this engine is asked to do.
+    pub fn log(&self) -> Arc<Mutex<LiveLog>> {
+        Arc::clone(&self.log)
+    }
+
+    fn record<T>(&self, change: impl FnOnce(&mut LiveLog) -> T) -> T {
+        change(&mut self.log.lock().unwrap_or_else(PoisonError::into_inner))
+    }
+}
+
+impl LiveEngine for ScriptedLiveEngine {
+    fn start(&mut self, fen: &str, multipv: u32, limit: SearchLimit) -> Result<(), EngineError> {
+        self.queue.clear();
+        self.record(|log| log.starts.push((fen.to_string(), multipv, limit)));
+        for analysis in (self.script)(fen) {
+            let depth = analysis.lines[0].depth;
+            if matches!(limit, SearchLimit::Depth(max) if depth > max) {
+                break;
+            }
+            self.queue.push_back(SearchUpdate::Depth(analysis));
+        }
+        if matches!(limit, SearchLimit::Depth(_)) {
+            self.queue.push_back(SearchUpdate::Finished);
+        }
+        Ok(())
+    }
+
+    fn poll(&mut self, wait: Duration) -> Result<Option<SearchUpdate>, EngineError> {
+        let failing = self.record(|log| {
+            let failing = log.fail_polls > 0;
+            log.fail_polls = log.fail_polls.saturating_sub(1);
+            failing
+        });
+        if failing {
+            return Err(EngineError::Io("scripted failure".into()));
+        }
+        if let Some(update) = self.queue.pop_front() {
+            return Ok(Some(update));
+        }
+        std::thread::sleep(wait.min(Duration::from_millis(2)));
+        Ok(None)
+    }
+
+    fn stop(&mut self) -> Result<(), EngineError> {
+        self.queue.clear();
+        self.record(|log| log.stops += 1);
+        Ok(())
+    }
+
+    fn recover(&mut self) -> Result<(), EngineError> {
+        self.queue.clear();
+        self.record(|log| {
+            log.recoveries += 1;
+            if log.fail_recover {
+                Err(EngineError::Spawn("scripted failure".into()))
+            } else {
+                Ok(())
+            }
+        })
     }
 }
 
@@ -531,5 +814,130 @@ mod tests {
         assert_eq!(find_in_engines_dir(&nested, name), Some(engine));
         assert_eq!(find_in_engines_dir(&elsewhere, name), None);
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    fn live_line(rank: u32, depth: u32, first_move: &str) -> AnalysisLine {
+        AnalysisLine {
+            rank,
+            eval: Eval::Cp(rank as i32 * 10),
+            depth,
+            pv: vec![first_move.to_string()],
+        }
+    }
+
+    fn at_depth(depth: u32, first_move: &str) -> PositionAnalysis {
+        PositionAnalysis {
+            lines: vec![live_line(1, depth, first_move)],
+        }
+    }
+
+    /// Everything the engine reports right now.
+    fn drain(engine: &mut ScriptedLiveEngine) -> Vec<SearchUpdate> {
+        let mut updates = Vec::new();
+        while let Some(update) = engine.poll(Duration::ZERO).unwrap() {
+            updates.push(update);
+        }
+        updates
+    }
+
+    #[test]
+    fn a_bounded_scripted_search_stops_at_its_depth_and_finishes() {
+        let mut engine = ScriptedLiveEngine::new(|_| {
+            vec![
+                at_depth(4, "e2e4"),
+                at_depth(8, "e2e4"),
+                at_depth(12, "e2e4"),
+            ]
+        });
+        engine.start("fen", 3, SearchLimit::Depth(8)).unwrap();
+        let depths: Vec<Option<u32>> = drain(&mut engine)
+            .iter()
+            .map(|u| match u {
+                SearchUpdate::Depth(a) => Some(a.lines[0].depth),
+                SearchUpdate::Finished => None,
+            })
+            .collect();
+        assert_eq!(depths, [Some(4), Some(8), None]);
+    }
+
+    #[test]
+    fn an_infinite_scripted_search_never_finishes() {
+        let mut engine =
+            ScriptedLiveEngine::new(|_| vec![at_depth(4, "e2e4"), at_depth(8, "e2e4")]);
+        engine.start("fen", 3, SearchLimit::Infinite).unwrap();
+        let updates = drain(&mut engine);
+        assert_eq!(updates.len(), 2);
+        assert!(!updates.contains(&SearchUpdate::Finished));
+        assert_eq!(engine.poll(Duration::ZERO).unwrap(), None);
+    }
+
+    #[test]
+    fn starting_a_search_discards_what_the_previous_one_had_not_delivered() {
+        let mut engine = ScriptedLiveEngine::new(|fen| vec![at_depth(6, fen)]);
+        engine.start("first", 1, SearchLimit::Infinite).unwrap();
+        engine.start("second", 1, SearchLimit::Infinite).unwrap();
+        match drain(&mut engine).as_slice() {
+            [SearchUpdate::Depth(a)] => assert_eq!(a.lines[0].pv, ["second"]),
+            other => panic!("unexpected updates {other:?}"),
+        }
+        let log = engine.log();
+        let starts = &log.lock().unwrap().starts;
+        assert_eq!(starts.len(), 2);
+        assert_eq!(starts[1], ("second".to_string(), 1, SearchLimit::Infinite));
+    }
+
+    #[test]
+    fn a_scripted_engine_can_be_told_to_fail() {
+        let mut engine = ScriptedLiveEngine::new(|_| vec![at_depth(6, "e2e4")]);
+        engine.log().lock().unwrap().fail_polls = 1;
+        assert!(matches!(
+            engine.poll(Duration::ZERO),
+            Err(EngineError::Io(_))
+        ));
+        assert!(engine.poll(Duration::ZERO).is_ok(), "only one poll fails");
+
+        engine.log().lock().unwrap().fail_recover = true;
+        assert!(engine.recover().is_err());
+        assert_eq!(engine.log().lock().unwrap().recoveries, 1);
+    }
+
+    #[test]
+    fn live_engines_can_be_used_as_trait_objects_on_another_thread() {
+        let engine: Box<dyn LiveEngine + Send> = Box::new(ScriptedLiveEngine::new(|_| Vec::new()));
+        std::thread::spawn(move || drop(engine)).join().unwrap();
+    }
+
+    #[test]
+    fn a_depth_is_reported_once_all_requested_lines_have_arrived() {
+        let mut search = LiveSearch::idle();
+        search.multipv = 2;
+        search.take(live_line(1, 5, "e2e4"));
+        assert!(search.ready.is_empty(), "half a depth is not reported");
+        search.take(live_line(2, 5, "d2d4"));
+        match search.ready.pop_front() {
+            Some(SearchUpdate::Depth(analysis)) => {
+                let shape: Vec<(u32, u32)> =
+                    analysis.lines.iter().map(|l| (l.rank, l.depth)).collect();
+                assert_eq!(shape, [(1, 5), (2, 5)]);
+            }
+            other => panic!("expected a depth update, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_short_group_is_reported_when_the_next_depth_starts() {
+        // A position with one legal move never fills its second line.
+        let mut search = LiveSearch::idle();
+        search.multipv = 3;
+        search.take(live_line(1, 5, "e2e4"));
+        search.take(live_line(1, 6, "e2e4"));
+        match search.ready.pop_front() {
+            Some(SearchUpdate::Depth(analysis)) => {
+                assert_eq!(analysis.lines.len(), 1);
+                assert_eq!(analysis.lines[0].depth, 5);
+            }
+            other => panic!("expected the depth-5 update, got {other:?}"),
+        }
+        assert!(search.ready.is_empty(), "depth 6 is still being gathered");
     }
 }

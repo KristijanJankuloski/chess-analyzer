@@ -1,21 +1,20 @@
 import { useMemo, useState } from "react";
 import { BoardPanel } from "../components/BoardPanel";
+import { GameDetails } from "../components/GameDetails";
 import { MoveList } from "../components/MoveList";
+import { PromotionChooser } from "../components/PromotionChooser";
 import type { ReviewSource } from "../generated/ReviewSource";
+import { useBoardEntry } from "../hooks/useBoardEntry";
 import { uciSquares } from "../lib/board";
 import {
   type RecordDraft,
-  type RecordResult,
-  type RecordState,
   currentFen,
   emptyDraft,
   gameOver,
-  isPromotion,
   recordedGame,
+  statusText,
   takeBack,
   toReviewSource,
-  tryMove,
-  turn,
 } from "../lib/record";
 import { startLive } from "../lib/reviewData";
 import { moveRows } from "../lib/rows";
@@ -29,33 +28,12 @@ export interface RecordScreenProps {
   onCancel: () => void;
 }
 
-const PROMOTIONS = [
-  { label: "Queen", piece: "q" },
-  { label: "Rook", piece: "r" },
-  { label: "Bishop", piece: "b" },
-  { label: "Knight", piece: "n" },
-];
-
-const RESULTS: { value: RecordResult; label: string }[] = [
-  { value: "*", label: "Unfinished" },
-  { value: "1-0", label: "1-0 (White won)" },
-  { value: "0-1", label: "0-1 (Black won)" },
-  { value: "1/2-1/2", label: "½-½ (draw)" },
-];
-
-function statusText(state: RecordState): string {
-  const ended = gameOver(state);
-  if (!ended.over) return `${turn(state) === "white" ? "White" : "Black"} to move`;
-  return ended.reason === "checkmate" ? `Checkmate: ${ended.result}` : `Draw by ${ended.reason}`;
-}
-
 /** Enter a game move by move on the board, then send it off to be reviewed. */
 export function RecordScreen({ draft, onDraftChange, onReview, onCancel }: RecordScreenProps) {
   const { recording, white, black, result } = draft;
   const update = (patch: Partial<RecordDraft>) => onDraftChange({ ...draft, ...patch });
-  const setRecording = (next: RecordState) => update({ recording: next });
+  const entry = useBoardEntry(recording, (next) => update({ recording: next }));
   const [orientation, setOrientation] = useState<"white" | "black">("white");
-  const [pending, setPending] = useState<{ from: string; to: string } | null>(null);
   const [confirmingNew, setConfirmingNew] = useState(false);
 
   const headers = { white, black, result };
@@ -64,28 +42,10 @@ export function RecordScreen({ draft, onDraftChange, onReview, onCancel }: Recor
   const rows = useMemo(() => moveRows(startLive(game)), [game]);
   const lastUci = recording.uciMoves.at(-1);
 
-  const handleMove = (from: string, to: string): boolean => {
-    if (isPromotion(recording, from, to)) {
-      setPending({ from, to });
-      return false; // the piece snaps back until a promotion piece is chosen
-    }
-    const next = tryMove(recording, from, to);
-    if (!next) return false;
-    setRecording(next);
-    return true;
-  };
-
   const startOver = () => {
     onDraftChange(emptyDraft);
-    setPending(null);
+    entry.cancelPromotion();
     setConfirmingNew(false);
-  };
-
-  const promote = (piece: string) => {
-    if (!pending) return;
-    const next = tryMove(recording, pending.from, pending.to, piece);
-    if (next) setRecording(next);
-    setPending(null);
   };
 
   return (
@@ -103,22 +63,13 @@ export function RecordScreen({ draft, onDraftChange, onReview, onCancel }: Recor
             fen={currentFen(recording)}
             orientation={orientation}
             lastMove={lastUci ? uciSquares(lastUci) : null}
-            onMove={ended.over ? undefined : handleMove}
+            onMove={ended.over ? undefined : entry.handleMove}
           />
           <p className="review__commentary" role="status">
             {statusText(recording)}
           </p>
-          {pending && (
-            <div role="group" aria-label="Promote to" className="record__promotion">
-              {PROMOTIONS.map(({ label, piece }) => (
-                <button key={piece} type="button" onClick={() => promote(piece)}>
-                  {label}
-                </button>
-              ))}
-              <button type="button" onClick={() => setPending(null)}>
-                Cancel promotion
-              </button>
-            </div>
+          {entry.pending && (
+            <PromotionChooser onChoose={entry.promote} onCancel={entry.cancelPromotion} />
           )}
           {confirmingNew && (
             <div role="group" aria-label="Discard this game?" className="record__promotion">
@@ -134,7 +85,7 @@ export function RecordScreen({ draft, onDraftChange, onReview, onCancel }: Recor
           <div className="nav-controls">
             <button
               type="button"
-              onClick={() => setRecording(takeBack(recording))}
+              onClick={() => update({ recording: takeBack(recording) })}
               disabled={recording.uciMoves.length === 0}
             >
               Take back
@@ -157,25 +108,14 @@ export function RecordScreen({ draft, onDraftChange, onReview, onCancel }: Recor
         </div>
 
         <div className="review__side">
-          <div className="summary record__details">
-            <label htmlFor="record-white">White</label>
-            <input id="record-white" type="text" value={white} placeholder="White" onChange={(e) => update({ white: e.target.value })} />
-            <label htmlFor="record-black">Black</label>
-            <input id="record-black" type="text" value={black} placeholder="Black" onChange={(e) => update({ black: e.target.value })} />
-            <label htmlFor="record-result">Result</label>
-            <select
-              id="record-result"
-              value={ended.over ? ended.result : result}
-              disabled={ended.over}
-              onChange={(e) => update({ result: e.target.value as RecordResult })}
-            >
-              {(ended.over ? RESULTS.filter((r) => r.value === ended.result) : RESULTS).map((r) => (
-                <option key={r.value} value={r.value}>
-                  {r.label}
-                </option>
-              ))}
-            </select>
-          </div>
+          <GameDetails
+            idPrefix="record"
+            white={white}
+            black={black}
+            result={result}
+            ended={ended}
+            onChange={update}
+          />
 
           <MoveList rows={rows} selectedPly={recording.uciMoves.length} onSelect={() => {}} />
 

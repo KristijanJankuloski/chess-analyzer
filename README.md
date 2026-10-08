@@ -5,7 +5,7 @@ position of a game; the app classifies each move (book, brilliant, great, best, 
 mistake, miss, blunder), scores both players' accuracy and names the opening. Everything runs on
 your machine, with no account and no network.
 
-**Status:** the engine core, a command-line reviewer and a desktop app for reviewing and recording games exist.
+**Status:** the engine core, a command-line reviewer and a desktop app for reviewing, recording and following live games exist.
 LLM commentary comes next. See [AGENTS.md](AGENTS.md) for the architecture and
 [docs/superpowers/specs](docs/superpowers/specs) for the design.
 
@@ -122,12 +122,13 @@ The first run compiles Tauri, which takes several minutes. Then:
 
 - **Games:** paste a PGN or open a PGN file and press Review. Recent games are listed; click one to reopen it.
 - **Record:** play a game over the board here, by clicking a piece and then its square or by dragging. The board enforces the rules (castling, en passant, promotion with a piece chooser) and ends the game at checkmate, stalemate or insufficient material. Repetitions and the fifty-move rule are left to you, because only a player claiming the draw ends a real game: pick the result yourself. Add the players' names, take moves back, and press "Review this game" to analyse it like any PGN.
+- **Live:** follow a game that is being played somewhere else, a tournament broadcast say. Enter its moves for both sides, on the board or by typing them (`e4`, `nf3`, `O-O`), and the evaluation bar, the engine's best lines and a class badge on every move update while Stockfish thinks. A green arrow is the engine's best move now; a red arrow is the move that should have been played instead of a mistake or blunder. The "Current best move" checkbox hides the green arrow and leaves the red one, so you see only what went wrong with the move just played. A badge with a dashed outline is provisional: the engine has not looked deeply enough yet, so it can still change. Joining a game that is already under way works too: type the moves so far, and the earlier moves get a quick look while the newest position gets the deep one. Leaving the tab pauses the search, and the game is remembered when you close the app. "Review this game" hands it to the full review.
 - **Settings:** the Stockfish path (empty means find it automatically), depth, lines, threads and hash. "Check engine" starts Stockfish to prove it works.
 - **Keyboard:** left and right arrows step through the moves, Home and End jump to the start and end.
 
 Games, settings and the analysis cache live in `%APPDATA%\com.chessanalyzer.app` on Windows.
 
-To see the interface in an ordinary browser without the Rust side, run `npm run dev` in `app` and open `http://localhost:1420/?demo`. Run the frontend tests with `npm test`. `npm run e2e:review` and `npm run e2e:record` check the real app end to end (see `app/e2e`; start the app with `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222` first).
+To see the interface in an ordinary browser without the Rust side, run `npm run dev` in `app` and open `http://localhost:1420/?demo`. Run the frontend tests with `npm test`. `npm run e2e:review`, `npm run e2e:record` and `npm run e2e:live` check the real app end to end (see `app/e2e`; start the app with `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222` first).
 
 ## Tests
 

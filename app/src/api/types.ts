@@ -1,6 +1,7 @@
 import type { EngineStatus } from "../generated/EngineStatus";
 import type { GameSummary } from "../generated/GameSummary";
 import type { JobEvent } from "../generated/JobEvent";
+import type { LiveEvent } from "../generated/LiveEvent";
 import type { PgnGameInfo } from "../generated/PgnGameInfo";
 import type { ReviewSource } from "../generated/ReviewSource";
 import type { Settings } from "../generated/Settings";
@@ -25,6 +26,16 @@ export interface Api {
   checkEngine(): Promise<EngineStatus>;
   /** Subscribes to review events; resolves to a function that unsubscribes. */
   onJobEvent(handler: (event: JobEvent) => void): Promise<() => void>;
+  /**
+   * Tells the live analysis the complete list of moves (UCI) played so far, starting it on first
+   * use. The events that follow carry `revision`, which must grow with every call. Rejects with
+   * a message when the engine cannot be started.
+   */
+  liveUpdate(revision: number, moves: string[]): Promise<void>;
+  /** Stops searching while keeping what was learned (the user went to another screen). */
+  livePause(): Promise<void>;
+  /** Subscribes to live analysis events; resolves to a function that unsubscribes. */
+  onLiveEvent(handler: (event: LiveEvent) => void): Promise<() => void>;
 }
 
 /** Tauri rejects with whatever the Rust command returned as its error; make that readable. */

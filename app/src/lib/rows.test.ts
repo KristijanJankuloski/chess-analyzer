@@ -47,3 +47,18 @@ describe("moveRows", () => {
     expect(rows[0].white?.san).toBe("f3");
   });
 });
+
+describe("moveRows for a live game", () => {
+  it("carries whether each move's class is still provisional", () => {
+    const data = fromStored(foolsMate);
+    const rows = moveRows(data, [false, true, false, true]);
+    expect(rows[0].white?.provisional).toBe(false);
+    expect(rows[0].black?.provisional).toBe(true);
+    expect(rows[1].white?.provisional).toBe(false);
+    expect(rows[1].black?.provisional).toBe(true);
+  });
+
+  it("leaves it unset when not asked", () => {
+    expect(moveRows(fromStored(foolsMate))[0].white?.provisional).toBeUndefined();
+  });
+});

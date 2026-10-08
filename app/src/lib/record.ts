@@ -92,6 +92,47 @@ export function takeBack(state: RecordState): RecordState {
     : { uciMoves: state.uciMoves.slice(0, -1) };
 }
 
+const CASTLING = /^[oO0]-[oO0](-[oO0])?$/;
+
+/**
+ * The spellings of typed text worth trying, most literal first. chess.js wants exact case and
+ * no trailing marks; someone following a game types quickly and in lowercase ("nf3", "o-o").
+ */
+function sanCandidates(text: string): string[] {
+  const bare = text.trim().replace(/[+#!?]+$/, "");
+  if (CASTLING.test(bare)) return [bare.length > 3 ? "O-O-O" : "O-O"];
+  const candidates = [bare];
+  // "bxc3" is a pawn capture and "bb5" a bishop move; only the legal reading wins.
+  if (/^[nbrqk]/.test(bare)) candidates.push(bare[0].toUpperCase() + bare.slice(1));
+  return candidates;
+}
+
+export type SanResult = { state: RecordState } | { error: string };
+
+/** Plays a move written in algebraic notation ("Nf3", "exd5", "O-O", "e8=Q"). */
+export function trySan(state: RecordState, text: string): SanResult {
+  if (text.trim() === "") return { error: "Type a move, such as Nf3." };
+  const chess = replay(state);
+  if (endReason(chess)) return { error: "The game is over." };
+  for (const candidate of sanCandidates(text)) {
+    try {
+      const move = chess.move(candidate);
+      const uci = `${move.from}${move.to}${move.promotion ?? ""}`;
+      return { state: { uciMoves: [...state.uciMoves, uci] } };
+    } catch {
+      // Not legal in this spelling; try the next one.
+    }
+  }
+  return { error: `Illegal move: ${text.trim()}` };
+}
+
+/** Whose move it is, or how the game ended. */
+export function statusText(state: RecordState): string {
+  const ended = gameOver(state);
+  if (!ended.over) return `${turn(state) === "white" ? "White" : "Black"} to move`;
+  return ended.reason === "checkmate" ? `Checkmate: ${ended.result}` : `Draw by ${ended.reason}`;
+}
+
 export type EndReason = "checkmate" | "stalemate" | "insufficient material";
 
 /**

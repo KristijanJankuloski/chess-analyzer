@@ -77,6 +77,14 @@ describe("NavControls", () => {
     expect(props.onToggleBest).toHaveBeenCalledOnce();
   });
 
+  it("can name the toggle for what it hides", () => {
+    const props = { ply: 2, last: 10, onSelect: vi.fn(), onFlip: vi.fn(), showBest: true, onToggleBest: vi.fn() };
+    render(<NavControls {...props} toggleLabel="Current best move" />);
+    fireEvent.click(screen.getByLabelText("Current best move"));
+    expect(props.onToggleBest).toHaveBeenCalledOnce();
+    expect(screen.queryByLabelText("Best move")).not.toBeInTheDocument();
+  });
+
   it("stops listening for keys when it goes away", () => {
     const props = { ply: 4, last: 10, onSelect: vi.fn(), onFlip: vi.fn(), showBest: true, onToggleBest: vi.fn() };
     const { unmount } = render(<NavControls {...props} />);

@@ -1,6 +1,6 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { App } from "./App";
 import { lastBoardOptions } from "./test-utils/boardStub";
 import { createFakeApi, eventsFor } from "./api/fake";
@@ -199,5 +199,122 @@ describe("App", () => {
       act(() => eventsFor(foolsMate, 1).forEach((e) => api.emit(e)));
       expect(await screen.findByText("39.9")).toBeInTheDocument();
     });
+  });
+});
+
+describe("App: following a live game", () => {
+  beforeEach(() => localStorage.clear());
+  afterEach(() => localStorage.clear());
+
+  const liveCalls = (api: ReturnType<typeof createFakeApi>) =>
+    api.calls.filter((call) => call[0] === "liveUpdate");
+
+  async function openLive(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByRole("button", { name: "Live" }));
+    await screen.findByRole("heading", { name: "Live game" });
+  }
+
+  it("opens from the navigation bar and can be left", async () => {
+    const { user } = setup();
+    await openLive(user);
+    await user.click(screen.getByRole("button", { name: "← Back" }));
+    expect(await screen.findByRole("heading", { name: "Review a game" })).toBeInTheDocument();
+  });
+
+  it("sends each move to the live analysis and shows what comes back", async () => {
+    const { api, user } = setup();
+    await waitFor(() => expect(api.liveSubscribers()).toBe(1));
+    await openLive(user);
+
+    await user.type(screen.getByLabelText("Move"), "e4{Enter}");
+    await waitFor(() => expect(liveCalls(api).at(-1)?.[2]).toEqual(["e2e4"]));
+    const revision = liveCalls(api).at(-1)![1] as number;
+
+    act(() =>
+      api.emitLive({
+        kind: "position",
+        revision,
+        index: 1,
+        depth: 21,
+        lines: [
+          {
+            rank: 1,
+            eval: { kind: "cp", value: 25 },
+            depth: 21,
+            pv: ["e7e5"],
+            pv_san: ["e5", "Nf3"],
+          },
+        ],
+      }),
+    );
+    expect(await screen.findByRole("img", { name: "Evaluation +0.25" })).toBeInTheDocument();
+    expect(screen.getByText("depth 21")).toBeInTheDocument();
+  });
+
+  it("pauses the analysis when you leave and keeps the game for when you return", async () => {
+    const { api, user } = setup();
+    await openLive(user);
+    await user.type(screen.getByLabelText("Move"), "e4{Enter}");
+    await waitFor(() => expect(liveCalls(api).length).toBeGreaterThan(0));
+    const before = liveCalls(api).length;
+
+    await user.click(screen.getByRole("button", { name: "Games" }));
+    await screen.findByRole("heading", { name: "Review a game" });
+    await waitFor(() => expect(api.calls.some((c) => c[0] === "livePause")).toBe(true));
+
+    await user.click(screen.getByRole("button", { name: "Live" }));
+    expect(await screen.findByRole("button", { name: "e4" })).toBeInTheDocument();
+    await waitFor(() => expect(liveCalls(api).length).toBe(before + 1));
+    expect(liveCalls(api).at(-1)?.[2]).toEqual(["e2e4"]);
+  });
+
+  it("remembers the game across a restart", async () => {
+    const first = setup();
+    await openLive(first.user);
+    await first.user.type(screen.getByLabelText("Move"), "e4{Enter}");
+    await first.user.type(screen.getByLabelText("Move"), "c5{Enter}");
+    await screen.findByRole("button", { name: "c5" });
+    cleanup();
+
+    const { user } = setup();
+    await openLive(user);
+    expect(screen.getByRole("button", { name: "e4" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "c5" })).toBeInTheDocument();
+  });
+
+  it("hands the game to a full review and starts the next one empty", async () => {
+    const { api, user } = setup();
+    await ready(api);
+    await openLive(user);
+    await user.type(screen.getByLabelText("Move"), "e4{Enter}");
+    await user.type(screen.getByLabelText("Move"), "e5{Enter}");
+    await user.click(screen.getByRole("button", { name: "Review this game" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("Analysing position 1 of");
+    const call = api.calls.find((c) => c[0] === "startReview");
+    expect(call?.[1]).toMatchObject({ kind: "moves", uci_moves: ["e2e4", "e7e5"] });
+
+    await user.click(screen.getByRole("button", { name: "Live" }));
+    await screen.findByRole("heading", { name: "Live game" });
+    expect(screen.queryByRole("button", { name: "e4" })).not.toBeInTheDocument();
+  });
+
+  it("explains when the analysis cannot start, and still takes the moves", async () => {
+    const { user } = setup({ liveError: "Stockfish was not found" });
+    await openLive(user);
+    await user.type(screen.getByLabelText("Move"), "e4{Enter}");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Stockfish was not found");
+    expect(screen.getByRole("button", { name: "e4" })).toBeInTheDocument();
+  });
+
+  it("cancels a review that is still running when you start following a game", async () => {
+    const { api, user } = setup();
+    await ready(api);
+    await user.type(screen.getByLabelText("PGN text"), "1. f3");
+    await user.click(screen.getByRole("button", { name: "Review" }));
+    await screen.findByRole("status");
+    await user.click(screen.getByRole("button", { name: "Live" }));
+    expect(api.calls).toContainEqual(["cancelReview", 1]);
+    expect(await screen.findByRole("heading", { name: "Live game" })).toBeInTheDocument();
   });
 });
