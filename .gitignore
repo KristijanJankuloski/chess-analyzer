@@ -154,3 +154,10 @@ vite.config.ts.timestamp-*
 # Local Stockfish binary (scripts/setup-stockfish) and the CLI's analysis cache
 /engines/
 chess-analyzer-cache.db
+
+# Desktop app
+/app/node_modules/
+/app/dist/
+/app/e2e/out/
+/app/src-tauri/gen/
+*.tsbuildinfo
