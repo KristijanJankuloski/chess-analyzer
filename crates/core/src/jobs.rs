@@ -3,7 +3,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
 
 use serde::{Deserialize, Serialize};
@@ -19,6 +19,12 @@ use crate::settings::{Settings, SettingsError};
 use crate::store::GameStore;
 
 pub type JobId = u32;
+
+/// Locks a mutex even if a panicking job poisoned it. The data behind these locks stays valid
+/// (a map of running jobs, a database handle), and one failed review must not break the next.
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
 
 /// Progress of a running job, in the order a UI wants to draw it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -146,10 +152,22 @@ impl ReviewJobs {
         let running = Arc::clone(&self.running);
         // Hold the lock across the spawn so the thread cannot finish and deregister
         // before it has been registered.
-        let mut guard = self.running.lock().expect("jobs lock");
+        let mut guard = lock(&self.running);
         let thread = std::thread::spawn(move || {
-            run_job(context);
-            running.lock().expect("jobs lock").remove(&job);
+            let sink = Arc::clone(&context.sink);
+            // A panic anywhere in the review must still end in a terminal event, or the UI would
+            // wait on "Analysing..." forever, and must still deregister the job.
+            let outcome =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run_job(context)));
+            if outcome.is_err() {
+                sink.emit(JobEvent::Failed {
+                    job,
+                    message:
+                        "the review stopped unexpectedly (an internal error); please try again"
+                            .to_string(),
+                });
+            }
+            lock(&running).remove(&job);
         });
         guard.insert(
             job,
@@ -163,7 +181,7 @@ impl ReviewJobs {
 
     /// Asks a running job to stop. Returns false if there is no such running job.
     pub fn cancel(&self, job: JobId) -> bool {
-        match self.running.lock().expect("jobs lock").get(&job) {
+        match lock(&self.running).get(&job) {
             Some(running) => {
                 running.cancel.store(true, Ordering::Relaxed);
                 true
@@ -173,15 +191,12 @@ impl ReviewJobs {
     }
 
     pub fn is_running(&self, job: JobId) -> bool {
-        self.running.lock().expect("jobs lock").contains_key(&job)
+        lock(&self.running).contains_key(&job)
     }
 
     /// Blocks until the job has finished. For tests and orderly shutdown.
     pub fn wait(&self, job: JobId) {
-        let thread = self
-            .running
-            .lock()
-            .expect("jobs lock")
+        let thread = lock(&self.running)
             .get_mut(&job)
             .and_then(|running| running.thread.take());
         if let Some(thread) = thread {
@@ -265,7 +280,7 @@ fn run_job(context: JobContext) {
         });
 
     sink.emit(match result {
-        Ok(review) => match store.lock().expect("store lock").save(&game, &review) {
+        Ok(review) => match lock(&store).save(&game, &review) {
             Ok(game_id) => JobEvent::Complete { job, game_id },
             Err(e) => JobEvent::Failed {
                 job,
@@ -559,6 +574,51 @@ mod tests {
         ));
         assert!(store.lock().unwrap().list().unwrap().is_empty());
         assert!(!jobs.cancel(job), "a finished job cannot be cancelled");
+    }
+
+    #[test]
+    fn a_panic_in_a_job_is_reported_and_the_job_stops_running() {
+        let factory: Arc<EngineFactory> = Arc::new(
+            |_: &Settings| -> Result<Box<dyn Analyzer + Send>, EngineError> {
+                panic!("the engine factory blew up")
+            },
+        );
+        let (jobs, sink, store) = jobs_with(factory);
+        let job = start_job(&jobs, pgn_source(FOOLS_MATE), Settings::default());
+        jobs.wait(job);
+
+        match sink.events().last() {
+            Some(JobEvent::Failed { message, .. }) => {
+                assert!(message.contains("unexpectedly"), "{message}");
+            }
+            other => panic!("expected Failed, got {other:?}"),
+        }
+        assert!(!jobs.is_running(job));
+        assert!(store.lock().unwrap().list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_job_that_panicked_does_not_stop_the_next_review() {
+        let first = Arc::new(AtomicBool::new(true));
+        let script = fools_mate_script();
+        let factory: Arc<EngineFactory> = Arc::new(move |_: &Settings| {
+            if first.swap(false, Ordering::SeqCst) {
+                panic!("only the first one fails");
+            }
+            Ok(Box::new(ScriptedAnalyzer::new(script.clone())) as Box<dyn Analyzer + Send>)
+        });
+        let (jobs, sink, store) = jobs_with(factory);
+
+        let failed = start_job(&jobs, pgn_source(FOOLS_MATE), Settings::default());
+        jobs.wait(failed);
+        let worked = start_job(&jobs, pgn_source(FOOLS_MATE), Settings::default());
+        jobs.wait(worked);
+
+        assert!(matches!(
+            sink.events().last(),
+            Some(JobEvent::Complete { .. })
+        ));
+        assert_eq!(store.lock().unwrap().list().unwrap().len(), 1);
     }
 
     #[test]
