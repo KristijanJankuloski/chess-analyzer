@@ -2,16 +2,18 @@
 //! run `scripts/setup-stockfish` or set STOCKFISH_PATH.
 
 use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use chess_analyzer_core::cache::CachedAnalyzer;
-use chess_analyzer_core::classify::MoveClass;
+use chess_analyzer_core::classify::{MoveClass, Thresholds};
 use chess_analyzer_core::engine::{
     Analyzer, EngineConfig, Limits, LiveEngine, SearchLimit, SearchUpdate, UciEngine,
     locate_stockfish,
 };
 use chess_analyzer_core::eval::Eval;
 use chess_analyzer_core::game::parse_pgn;
+use chess_analyzer_core::live::{LiveConfig, LiveEvent, LiveSession, LiveSink};
 use chess_analyzer_core::openings::OpeningBook;
 use chess_analyzer_core::review::{ReviewOptions, review_game};
 use shakmaty::fen::Fen;
@@ -382,4 +384,129 @@ fn a_recovered_engine_searches_again() {
 
     engine.start(START, 1, SearchLimit::Depth(4)).unwrap();
     poll_until(&mut engine, |u| *u == SearchUpdate::Finished);
+}
+
+// ---- a live session on the real engine
+
+#[derive(Default)]
+struct Collect(Mutex<Vec<LiveEvent>>);
+
+impl LiveSink for Collect {
+    fn emit(&self, event: LiveEvent) {
+        self.0.lock().unwrap().push(event);
+    }
+}
+
+impl Collect {
+    fn wait_for(&self, what: &str, done: impl Fn(&[LiveEvent]) -> bool) -> Vec<LiveEvent> {
+        let deadline = Instant::now() + Duration::from_secs(60);
+        loop {
+            let events = self.0.lock().unwrap().clone();
+            if done(&events) {
+                return events;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "timed out waiting for {what}: {events:#?}"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+}
+
+fn session(sink: &Arc<Collect>) -> Option<LiveSession> {
+    let engine = engine()?;
+    let config = LiveConfig {
+        multipv: 2,
+        thresholds: Thresholds::default(),
+        book: OpeningBook::bundled(),
+    };
+    Some(LiveSession::start(engine, sink.clone(), config))
+}
+
+fn moves(list: &[&str]) -> Vec<String> {
+    list.iter().map(|m| m.to_string()).collect()
+}
+
+fn classified(events: &[LiveEvent], ply: usize) -> bool {
+    events
+        .iter()
+        .any(|e| matches!(e, LiveEvent::Move { review, .. } if review.ply == ply))
+}
+
+fn reached(events: &[LiveEvent], revision: u64, index: usize, depth: u32) -> bool {
+    events.iter().any(|e| {
+        matches!(e, LiveEvent::Position { revision: r, index: i, depth: d, .. }
+            if *r == revision && *i == index && *d >= depth)
+    })
+}
+
+#[test]
+fn a_live_session_flags_a_blunder_as_it_is_entered() {
+    let sink = Arc::new(Collect::default());
+    let Some(session) = session(&sink) else {
+        return;
+    };
+    session.set_moves(1, moves(&["f2f3", "e7e5", "g2g4"]));
+    let events = sink.wait_for("g4 classified and a deep look after it", |e| {
+        classified(e, 3) && reached(e, 1, 3, 12)
+    });
+
+    let blunder = events.iter().rev().find_map(|e| match e {
+        LiveEvent::Move { review, .. } if review.ply == 3 => Some(review.clone()),
+        _ => None,
+    });
+    let blunder = blunder.expect("g4 is classified");
+    assert_eq!(blunder.san, "g4");
+    assert_eq!(blunder.class, MoveClass::Blunder);
+
+    // The lines for the newest position come with their moves in SAN: Black mates with Qh4.
+    let lines = events.iter().rev().find_map(|e| match e {
+        LiveEvent::Position {
+            index: 3, lines, ..
+        } => Some(lines.clone()),
+        _ => None,
+    });
+    let best = &lines.unwrap()[0];
+    assert_eq!(best.eval, Eval::Mate(-1));
+    assert_eq!(best.pv_san[0], "Qh4#");
+}
+
+#[test]
+fn a_live_session_keeps_up_with_moves_entered_in_quick_succession() {
+    let sink = Arc::new(Collect::default());
+    let Some(session) = session(&sink) else {
+        return;
+    };
+    let game = [
+        "e2e4", "e7e5", "g1f3", "b8c6", "f1b5", "a7a6", "b5a4", "g8f6",
+    ];
+    for (revision, count) in (1..=game.len()).enumerate() {
+        session.set_moves(revision as u64 + 1, moves(&game[..count]));
+    }
+    let last = game.len() as u64;
+    let events = sink.wait_for("every move classified and a deep final look", |e| {
+        (1..=game.len()).all(|ply| classified(e, ply)) && reached(e, last, game.len(), 12)
+    });
+
+    // Every move of the final list was classified under the final revision, or an earlier one
+    // that is still true of it, and nothing arrived from a revision that was never sent.
+    for ply in 1..=game.len() {
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                LiveEvent::Move { review, .. } if review.ply == ply
+            )),
+            "ply {ply} was never classified"
+        );
+    }
+    assert!(events.iter().all(|e| match e {
+        LiveEvent::Position { revision, .. }
+        | LiveEvent::Move { revision, .. }
+        | LiveEvent::Error { revision, .. } => (1..=last).contains(revision),
+    }));
+    assert!(
+        events.iter().all(|e| !matches!(e, LiveEvent::Error { .. })),
+        "no errors expected: {events:#?}"
+    );
 }

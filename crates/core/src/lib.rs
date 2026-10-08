@@ -6,6 +6,7 @@ pub mod engine;
 pub mod eval;
 pub mod game;
 pub mod jobs;
+pub mod live;
 pub mod openings;
 pub mod review;
 pub mod settings;
