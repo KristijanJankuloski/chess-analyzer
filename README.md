@@ -11,7 +11,7 @@ Every move also gets a plain-language explanation written from the engine's own 
 
 ## Install (Windows)
 
-Download `Chess Analyzer_<version>_x64-setup.exe` from the [latest release](https://github.com/KristijanJankuloski/chess-analyzer/releases/latest) and run it. It installs for your user only and does not ask for administrator rights.
+Download `Chess-Analyzer_<version>_x64-setup.exe` from the [latest release](https://github.com/KristijanJankuloski/chess-analyzer/releases/latest) and run it. It installs for your user only and does not ask for administrator rights.
 
 Windows SmartScreen may say the app is from an unknown publisher: the installer is not code-signed yet. Choose **More info**, then **Run anyway**. The release page lists a SHA-256 checksum for the installer if you want to check the download.
 

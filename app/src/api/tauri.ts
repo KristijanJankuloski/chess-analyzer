@@ -32,6 +32,7 @@ export const tauriApi: Api = {
   getSettings: () => invoke("get_settings"),
   saveSettings: (settings) => invoke("save_settings", { settings }),
   checkEngine: () => invoke("check_engine_status"),
+  engineLocated: () => invoke("engine_located"),
   downloadStockfish: () => invoke("download_stockfish"),
   onInstallProgress: (handler) =>
     listen<InstallProgress>(INSTALL_EVENT, (event) => handler(event.payload)),

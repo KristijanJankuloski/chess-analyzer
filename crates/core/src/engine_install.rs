@@ -226,7 +226,7 @@ pub fn install_stockfish(
     }
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_connect(Some(Duration::from_secs(20)))
-        .timeout_global(Some(Duration::from_secs(30 * 60)))
+        .timeout_global(Some(Duration::from_secs(15 * 60)))
         .build()
         .into();
     let response = agent

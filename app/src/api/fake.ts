@@ -130,6 +130,10 @@ export function createFakeApi(options: FakeOptions = {}): FakeApi {
       record("checkEngine");
       return options.engine ?? { found: true, name: "Stockfish 19", error: null };
     },
+    engineLocated: async () => {
+      record("engineLocated");
+      return (options.engine ?? { found: true }).found;
+    },
     downloadStockfish: async () => {
       record("downloadStockfish");
       if (options.installError) throw options.installError;

@@ -121,8 +121,14 @@ describe("HomeScreen", () => {
 
   it("says nothing about Stockfish when it works", async () => {
     const { api } = setup();
-    await waitFor(() => expect(api.calls.some((c) => c[0] === "checkEngine")).toBe(true));
+    await waitFor(() => expect(api.calls.some((c) => c[0] === "engineLocated")).toBe(true));
     expect(screen.queryByText(/Stockfish was not found/)).not.toBeInTheDocument();
+  });
+
+  it("does not start the engine just to learn whether it exists", async () => {
+    const { api } = setup();
+    await waitFor(() => expect(api.calls.some((c) => c[0] === "engineLocated")).toBe(true));
+    expect(api.calls.some((c) => c[0] === "checkEngine")).toBe(false);
   });
 
   it("tells the user when Stockfish is missing and leads them to Settings", async () => {
@@ -136,7 +142,7 @@ describe("HomeScreen", () => {
 
   it("stays quiet when the engine check itself fails", async () => {
     const api = createFakeApi({ games: [operaGame] });
-    api.checkEngine = async () => {
+    api.engineLocated = async () => {
       throw "boom";
     };
     render(<HomeScreen api={api} onStart={vi.fn()} onOpen={vi.fn()} />);

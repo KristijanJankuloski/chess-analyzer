@@ -26,6 +26,8 @@ export interface Api {
   getSettings(): Promise<Settings>;
   saveSettings(settings: Settings): Promise<Settings>;
   checkEngine(): Promise<EngineStatus>;
+  /** Whether a Stockfish file exists where the settings point. Does not start it, so it is cheap. */
+  engineLocated(): Promise<boolean>;
   /**
    * Downloads Stockfish and points the settings at it. Progress arrives through
    * `onInstallProgress`. Rejects with a message if it could not be downloaded or does not work.

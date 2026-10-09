@@ -203,6 +203,12 @@ async fn check_engine_status(state: State<'_, AppState>) -> Result<EngineStatus,
         .map_err(message)
 }
 
+/// Cheap enough to call on every visit to the home screen: it only looks for the file.
+#[tauri::command]
+fn engine_located(state: State<'_, AppState>) -> Result<bool, String> {
+    Ok(state.settings.lock().map_err(message)?.engine_located())
+}
+
 /// Downloads Stockfish into the app's data directory and points the settings at it. The download
 /// is large, so it runs off the main thread, and a second request while one is running is refused.
 #[tauri::command(async)]
@@ -280,6 +286,7 @@ pub fn run() {
             get_settings,
             save_settings,
             check_engine_status,
+            engine_located,
             download_stockfish,
             live_update,
             live_pause,

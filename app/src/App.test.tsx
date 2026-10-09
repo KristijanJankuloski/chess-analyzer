@@ -5,6 +5,7 @@ import { App } from "./App";
 import { lastBoardOptions } from "./test-utils/boardStub";
 import { createFakeApi, eventsFor } from "./api/fake";
 import { foolsMate, operaGame } from "./fixtures";
+import type { Installed } from "./generated/Installed";
 
 function setup(options = {}) {
   const api = createFakeApi({ games: [foolsMate, operaGame], ...options });
@@ -27,6 +28,32 @@ describe("App", () => {
     const { user } = setup({ engine: { found: false, name: null, error: "Stockfish was not found" } });
     await user.click(await screen.findByRole("button", { name: "Get Stockfish in Settings" }));
     expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
+  });
+
+  it("keeps downloading Stockfish while the user looks at another screen", async () => {
+    const { api, user } = setup({
+      engine: { found: false, name: null, error: "Stockfish was not found" },
+    });
+    let finish!: (installed: Installed) => void;
+    api.downloadStockfish = () =>
+      new Promise<Installed>((resolve) => {
+        finish = resolve;
+      });
+
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await user.click(await screen.findByRole("button", { name: "Download Stockfish 19" }));
+    await user.click(screen.getByRole("button", { name: "Games" }));
+    await screen.findByRole("heading", { name: "Review a game" });
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+
+    // Back on Settings the download is still shown as running, and cannot be started twice.
+    expect(await screen.findByRole("button", { name: "Download Stockfish 19" })).toBeDisabled();
+    act(() => api.emitInstall({ stage: "downloading", downloaded: 20_000_000, total: 80_000_000 }));
+    expect(screen.getByText("Downloading… 20 of 80 MB")).toBeInTheDocument();
+
+    await act(async () => finish({ path: "C:/e/stockfish.exe", engine: "Stockfish 19" }));
+    expect(await screen.findByText("Found Stockfish 19")).toBeInTheDocument();
+    expect(screen.getByLabelText("Stockfish path")).toHaveValue("C:/e/stockfish.exe");
   });
 
   it("reviews a pasted game from the first click to the finished summary", async () => {

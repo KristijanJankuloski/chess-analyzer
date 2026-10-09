@@ -43,8 +43,12 @@ jobs:
         shell: pwsh
         run: |
           $installer = Get-ChildItem target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
-          $hash = (Get-FileHash $installer.FullName -Algorithm SHA256).Hash.ToLower()
-          "$hash *$($installer.Name)" | Out-File -Encoding ascii "$($installer.FullName).sha256"
+          # GitHub turns spaces in asset names into dots, so name the file what it will be called there.
+          $name = $installer.Name -replace ' ', '-'
+          Rename-Item -Path $installer.FullName -NewName $name
+          $path = Join-Path $installer.DirectoryName $name
+          $hash = (Get-FileHash $path -Algorithm SHA256).Hash.ToLower()
+          [IO.File]::WriteAllText("$path.sha256", "$hash *$name`n")
       - name: Draft the release
         shell: pwsh
         env:

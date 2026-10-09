@@ -27,8 +27,8 @@ export function HomeScreen({ api, onStart, onOpen, notice, onOpenSettings }: Hom
   const [recent, setRecent] = useState<GameSummary[]>([]);
   const [engineMissing, setEngineMissing] = useState(false);
   useEffect(() => {
-    api.checkEngine().then(
-      (status) => setEngineMissing(!status.found),
+    api.engineLocated().then(
+      (located) => setEngineMissing(!located),
       () => undefined,
     );
   }, [api]);

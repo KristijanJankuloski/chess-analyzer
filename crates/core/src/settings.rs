@@ -76,6 +76,12 @@ impl Settings {
         }
     }
 
+    /// Whether an engine file exists where these settings point. Cheaper than `check_engine`,
+    /// which starts the engine (and allocates its hash memory) to prove it works.
+    pub fn engine_located(&self) -> bool {
+        locate_stockfish(self.engine_path.as_deref().map(Path::new)).is_some()
+    }
+
     /// Starts the engine these settings describe.
     pub fn start_engine(&self) -> Result<UciEngine, EngineError> {
         let explicit = self.engine_path.as_deref().map(Path::new);
@@ -323,5 +329,25 @@ mod tests {
         let status = check_engine(&settings);
         assert!(!status.found);
         assert!(status.error.unwrap().contains("Stockfish was not found"));
+    }
+
+    #[test]
+    fn whether_the_engine_exists_is_known_without_starting_it() {
+        let missing = Settings {
+            engine_path: Some("definitely/not/here/stockfish".into()),
+            ..Settings::default()
+        };
+        assert!(!missing.engine_located());
+
+        // A file that is not an engine at all: it exists, and nothing is run to find out.
+        let path =
+            std::env::temp_dir().join(format!("chess-analyzer-located-{}.exe", std::process::id()));
+        std::fs::write(&path, b"not a program").unwrap();
+        let present = Settings {
+            engine_path: Some(path.to_string_lossy().into_owned()),
+            ..Settings::default()
+        };
+        assert!(present.engine_located());
+        let _ = std::fs::remove_file(&path);
     }
 }

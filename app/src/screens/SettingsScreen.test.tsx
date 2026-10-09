@@ -4,12 +4,20 @@ import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS, createFakeApi } from "../api/fake";
 import type { EngineStatus } from "../generated/EngineStatus";
 import type { Installed } from "../generated/Installed";
+import type { Api } from "../api/types";
+import { useStockfishInstall } from "../hooks/useStockfishInstall";
 import { SettingsScreen } from "./SettingsScreen";
+
+/** Settings as App wires it up: the download state lives outside the screen. */
+function Screen({ api, onDone }: { api: Api; onDone: () => void }) {
+  const install = useStockfishInstall(api);
+  return <SettingsScreen api={api} install={install} onDone={onDone} />;
+}
 
 async function setup(options = {}) {
   const api = createFakeApi(options);
   const onDone = vi.fn();
-  render(<SettingsScreen api={api} onDone={onDone} />);
+  render(<Screen api={api} onDone={onDone} />);
   await screen.findByRole("heading", { name: "Settings" });
   return { api, onDone, user: userEvent.setup() };
 }
@@ -107,7 +115,7 @@ describe("SettingsScreen", () => {
     api.getSettings = async () => {
       throw "could not read the settings file";
     };
-    render(<SettingsScreen api={api} onDone={() => {}} />);
+    render(<Screen api={api} onDone={() => {}} />);
     await waitFor(() => expect(screen.getByText("could not read the settings file")).toBeInTheDocument());
   });
 });
