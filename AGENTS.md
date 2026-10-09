@@ -174,5 +174,5 @@ Suggested SQLite contents: games (PGN + players/result/metadata), per-ply analys
 - Final classification thresholds / win-probability model.
 - Which local model(s) to ship or recommend (Qwen / Gemma / Llama, etc.).
 - When to move from Ollama to embedded llama.cpp.
-- How Stockfish and model binaries are distributed (bundled vs. downloaded on first run).
+- How model binaries are distributed. (Stockfish is decided: the Windows installer does not bundle it; the app offers a one-click download of the pinned official release, verified by SHA-256. See `docs/superpowers/specs/2026-10-09-windows-release-design.md`.)
 - Final app-data directory and app name.
