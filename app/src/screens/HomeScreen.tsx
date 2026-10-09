@@ -11,18 +11,27 @@ export interface HomeScreenProps {
   onOpen: (gameId: number) => void;
   /** Something to tell the user, e.g. why the last review could not start. */
   notice?: string | null;
+  /** Opens Settings, where Stockfish can be downloaded. */
+  onOpenSettings?: () => void;
 }
 
 function gameLabel(game: PgnGameInfo): string {
   return `${game.index + 1}. ${game.white} vs ${game.black} (${game.result}), ${Math.ceil(game.moves / 2)} moves`;
 }
 
-export function HomeScreen({ api, onStart, onOpen, notice }: HomeScreenProps) {
+export function HomeScreen({ api, onStart, onOpen, notice, onOpenSettings }: HomeScreenProps) {
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [choices, setChoices] = useState<PgnGameInfo[] | null>(null);
   const [chosen, setChosen] = useState(0);
   const [recent, setRecent] = useState<GameSummary[]>([]);
+  const [engineMissing, setEngineMissing] = useState(false);
+  useEffect(() => {
+    api.checkEngine().then(
+      (status) => setEngineMissing(!status.found),
+      () => undefined,
+    );
+  }, [api]);
 
   const loadRecent = useCallback(() => {
     api.listGames().then(setRecent, (e) => setError(errorMessage(e)));
@@ -66,6 +75,14 @@ export function HomeScreen({ api, onStart, onOpen, notice }: HomeScreenProps) {
     <div className="home">
       <section className="home__new">
         <h2>Review a game</h2>
+        {engineMissing && (
+          <p className="home__notice" role="status">
+            Stockfish was not found, so games cannot be reviewed yet.
+            <button type="button" onClick={onOpenSettings}>
+              Get Stockfish in Settings
+            </button>
+          </p>
+        )}
         <label htmlFor="pgn-text">Paste a PGN</label>
         <textarea
           id="pgn-text"

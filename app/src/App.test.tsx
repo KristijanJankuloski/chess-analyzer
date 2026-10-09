@@ -23,6 +23,12 @@ describe("App", () => {
     expect(await screen.findByRole("button", { name: /^A vs B/ })).toBeInTheDocument();
   });
 
+  it("leads from the missing-Stockfish banner to Settings", async () => {
+    const { user } = setup({ engine: { found: false, name: null, error: "Stockfish was not found" } });
+    await user.click(await screen.findByRole("button", { name: "Get Stockfish in Settings" }));
+    expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
+  });
+
   it("reviews a pasted game from the first click to the finished summary", async () => {
     const { api, user } = setup();
     await ready(api);

@@ -9,8 +9,11 @@ function setup(options = {}) {
   const api = createFakeApi({ games: [operaGame, foolsMate], ...options });
   const onStart = vi.fn();
   const onOpen = vi.fn();
-  const view = render(<HomeScreen api={api} onStart={onStart} onOpen={onOpen} />);
-  return { api, onStart, onOpen, user: userEvent.setup(), ...view };
+  const onOpenSettings = vi.fn();
+  const view = render(
+    <HomeScreen api={api} onStart={onStart} onOpen={onOpen} onOpenSettings={onOpenSettings} />,
+  );
+  return { api, onStart, onOpen, onOpenSettings, user: userEvent.setup(), ...view };
 }
 
 describe("HomeScreen", () => {
@@ -114,5 +117,30 @@ describe("HomeScreen", () => {
     const api = createFakeApi();
     render(<HomeScreen api={api} onStart={() => {}} onOpen={() => {}} notice="Stockfish was not found" />);
     expect(screen.getByRole("alert")).toHaveTextContent("Stockfish was not found");
+  });
+
+  it("says nothing about Stockfish when it works", async () => {
+    const { api } = setup();
+    await waitFor(() => expect(api.calls.some((c) => c[0] === "checkEngine")).toBe(true));
+    expect(screen.queryByText(/Stockfish was not found/)).not.toBeInTheDocument();
+  });
+
+  it("tells the user when Stockfish is missing and leads them to Settings", async () => {
+    const { user, onOpenSettings } = setup({
+      engine: { found: false, name: null, error: "Stockfish was not found" },
+    });
+    expect(await screen.findByText(/Stockfish was not found, so games cannot be reviewed yet/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Get Stockfish in Settings" }));
+    expect(onOpenSettings).toHaveBeenCalledOnce();
+  });
+
+  it("stays quiet when the engine check itself fails", async () => {
+    const api = createFakeApi({ games: [operaGame] });
+    api.checkEngine = async () => {
+      throw "boom";
+    };
+    render(<HomeScreen api={api} onStart={vi.fn()} onOpen={vi.fn()} />);
+    await screen.findByRole("heading", { name: "Review a game" });
+    expect(screen.queryByText(/Stockfish was not found/)).not.toBeInTheDocument();
   });
 });

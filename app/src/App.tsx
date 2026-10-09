@@ -114,6 +114,7 @@ export function App({ api }: { api: Api }) {
         onStart={start}
         onOpen={open}
         notice={state.status === "failed" ? state.message : null}
+        onOpenSettings={() => setView("settings")}
       />
     );
   }
