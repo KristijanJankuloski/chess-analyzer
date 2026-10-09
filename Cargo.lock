@@ -392,7 +392,7 @@ checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 
 [[package]]
 name = "chess-analyzer-app"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "chess-analyzer-core",
  "serde",
@@ -404,7 +404,7 @@ dependencies = [
 
 [[package]]
 name = "chess-analyzer-cli"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "chess-analyzer-core",
@@ -414,7 +414,7 @@ dependencies = [
 
 [[package]]
 name = "chess-analyzer-core"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "pgn-reader",
  "rusqlite",
