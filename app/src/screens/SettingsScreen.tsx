@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { type Api, errorMessage } from "../api/types";
 import type { EngineStatus } from "../generated/EngineStatus";
+import type { InstallProgress } from "../generated/InstallProgress";
 import type { Settings } from "../generated/Settings";
+import { describeInstall, installFraction } from "../lib/install";
 
 export interface SettingsScreenProps {
   api: Api;
@@ -22,9 +24,29 @@ export function SettingsScreen({ api, onDone }: SettingsScreenProps) {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [status, setStatus] = useState<EngineStatus | null>(null);
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
+  const [progress, setProgress] = useState<InstallProgress | null>(null);
+  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     api.getSettings().then(setSettings, (e) => setMessage({ text: errorMessage(e), error: true }));
+  }, [api]);
+
+  // Know whether Stockfish works as soon as the screen opens, so a missing engine is obvious.
+  useEffect(() => {
+    api.checkEngine().then(setStatus, () => undefined);
+  }, [api]);
+
+  useEffect(() => {
+    let unsubscribe: (() => void) | undefined;
+    let gone = false;
+    api.onInstallProgress(setProgress).then((off) => {
+      if (gone) off();
+      else unsubscribe = off;
+    });
+    return () => {
+      gone = true;
+      unsubscribe?.();
+    };
   }, [api]);
 
   if (!settings) {
@@ -45,6 +67,24 @@ export function SettingsScreen({ api, onDone }: SettingsScreenProps) {
   const check = async () => {
     // The engine is checked with the saved settings, so save the edited path first.
     if (await save()) setStatus(await api.checkEngine());
+  };
+
+  // The label repeats the pinned version in crates/core/src/engine_install.rs.
+  const download = async () => {
+    setDownloading(true);
+    setProgress(null);
+    setMessage(null);
+    try {
+      const installed = await api.downloadStockfish();
+      // The app saved the new path itself; show it without touching other unsaved edits.
+      setSettings((current) => current && { ...current, engine_path: installed.path });
+      setStatus({ found: true, name: installed.engine, error: null });
+      setMessage({ text: `Installed ${installed.engine}.`, error: false });
+    } catch (e) {
+      setMessage({ text: errorMessage(e), error: true });
+    } finally {
+      setDownloading(false);
+    }
   };
 
   return (
@@ -69,6 +109,23 @@ export function SettingsScreen({ api, onDone }: SettingsScreenProps) {
           </span>
         )}
       </div>
+      {status && !status.found && (
+        <div className="settings__download">
+          <button type="button" onClick={download} disabled={downloading}>
+            Download Stockfish 19
+          </button>
+          {downloading && (
+            <>
+              <progress value={installFraction(progress) ?? undefined} max={1} aria-label="Download progress" />
+              <span role="status">{describeInstall(progress)}</span>
+            </>
+          )}
+          <p className="muted">
+            About 81 MB, from the official Stockfish release on GitHub. Stockfish is free software under the
+            GNU GPL v3 and runs as a separate program.
+          </p>
+        </div>
+      )}
 
       {FIELDS.map(({ key, label, hint, max }) => (
         <div className="settings__field" key={key}>

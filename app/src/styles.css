@@ -651,3 +651,15 @@ h2 {
   opacity: 0.6;
   font-style: italic;
 }
+
+.settings__download {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 12px;
+}
+
+.settings__download progress {
+  width: 100%;
+  accent-color: var(--accent);
+}
