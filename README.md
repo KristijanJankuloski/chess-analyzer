@@ -3,11 +3,21 @@
 A local game-review tool in the spirit of Chess.com's Game Review. Stockfish evaluates every
 position of a game; the app classifies each move (book, brilliant, great, best, good, inaccuracy,
 mistake, miss, blunder), scores both players' accuracy and names the opening. Everything runs on
-your machine, with no account and no network.
+your machine, with no account, and no network once Stockfish is installed.
 
 **Status:** the engine core, a command-line reviewer and a desktop app for reviewing, recording and following live games exist.
 Every move also gets a plain-language explanation written from the engine's own lines (no model needed); an optional local-LLM coach comes later. See [AGENTS.md](AGENTS.md) for the architecture and
 [docs/superpowers/specs](docs/superpowers/specs) for the design.
+
+## Install (Windows)
+
+Download `Chess-Analyzer_<version>_x64-setup.exe` from the [latest release](https://github.com/KristijanJankuloski/chess-analyzer/releases/latest) and run it. It installs for your user only and does not ask for administrator rights.
+
+Windows SmartScreen may say the app is from an unknown publisher: the installer is not code-signed yet. Choose **More info**, then **Run anyway**. The release page lists a SHA-256 checksum for the installer if you want to check the download.
+
+The first time you open the app it tells you that Stockfish is missing. Open **Settings** and press **Download Stockfish 19** (about 81 MB, from the official Stockfish release on GitHub). That download is the only time the app uses the internet; analysis runs entirely on your machine. Already have Stockfish? Enter its path in Settings instead.
+
+Building from source instead? Continue with "Getting started" below.
 
 ## Getting started
 
@@ -142,5 +152,5 @@ Integration tests that need Stockfish print `SKIPPED` and pass when no binary is
 
 ## Licenses
 
-This project is MIT licensed. Stockfish (GPLv3) is downloaded separately and run as its own
-process. The opening names come from lichess-org/chess-openings (CC0).
+This project is MIT licensed. The installer does not contain Stockfish. Stockfish (GPLv3) is downloaded from its
+official release, either by the setup script or by the app's Download button, and run as its own process. The opening names come from lichess-org/chess-openings (CC0).

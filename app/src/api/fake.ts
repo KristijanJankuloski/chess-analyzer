@@ -1,6 +1,8 @@
 import { foolsMate, operaGame } from "../fixtures";
 import type { EngineStatus } from "../generated/EngineStatus";
 import type { GameSummary } from "../generated/GameSummary";
+import type { InstallProgress } from "../generated/InstallProgress";
+import type { Installed } from "../generated/Installed";
 import type { JobEvent } from "../generated/JobEvent";
 import type { LiveEvent } from "../generated/LiveEvent";
 import type { PgnGameInfo } from "../generated/PgnGameInfo";
@@ -22,6 +24,8 @@ export interface FakeApi extends Api {
   emit(event: JobEvent): void;
   /** Delivers a live analysis event to every live subscriber. */
   emitLive(event: LiveEvent): void;
+  /** Delivers a download progress event to every subscriber. */
+  emitInstall(progress: InstallProgress): void;
   /** How many handlers are currently subscribed to review events. */
   subscribers(): number;
   /** How many handlers are currently subscribed to live analysis events. */
@@ -46,6 +50,10 @@ export interface FakeOptions {
   fileText?: string;
   /** Make `liveUpdate` reject with this message (for example, no engine). */
   liveError?: string;
+  /** What `downloadStockfish` resolves to. */
+  install?: Installed;
+  /** Make `downloadStockfish` reject with this message. */
+  installError?: string;
 }
 
 function summaryOf(stored: StoredGame): GameSummary {
@@ -58,6 +66,7 @@ export function createFakeApi(options: FakeOptions = {}): FakeApi {
   let settings = options.settings ?? DEFAULT_SETTINGS;
   const handlers = new Set<(event: JobEvent) => void>();
   const liveHandlers = new Set<(event: LiveEvent) => void>();
+  const installHandlers = new Set<(progress: InstallProgress) => void>();
   const calls: unknown[][] = [];
   const record = (...call: unknown[]) => calls.push(call);
 
@@ -65,6 +74,7 @@ export function createFakeApi(options: FakeOptions = {}): FakeApi {
     calls,
     emit: (event) => handlers.forEach((handler) => handler(event)),
     emitLive: (event) => liveHandlers.forEach((handler) => handler(event)),
+    emitInstall: (progress) => installHandlers.forEach((handler) => handler(progress)),
     subscribers: () => handlers.size,
     liveSubscribers: () => liveHandlers.size,
 
@@ -119,6 +129,24 @@ export function createFakeApi(options: FakeOptions = {}): FakeApi {
     checkEngine: async () => {
       record("checkEngine");
       return options.engine ?? { found: true, name: "Stockfish 19", error: null };
+    },
+    engineLocated: async () => {
+      record("engineLocated");
+      return (options.engine ?? { found: true }).found;
+    },
+    downloadStockfish: async () => {
+      record("downloadStockfish");
+      if (options.installError) throw options.installError;
+      const installed = options.install ?? { path: "C:/data/engines/stockfish.exe", engine: "Stockfish 19" };
+      settings = { ...settings, engine_path: installed.path };
+      return installed;
+    },
+    onInstallProgress: async (handler) => {
+      record("onInstallProgress");
+      installHandlers.add(handler);
+      return () => {
+        installHandlers.delete(handler);
+      };
     },
     onJobEvent: async (handler) => {
       record("onJobEvent");

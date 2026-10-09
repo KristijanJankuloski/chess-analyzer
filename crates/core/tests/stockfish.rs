@@ -11,6 +11,7 @@ use chess_analyzer_core::engine::{
     Analyzer, EngineConfig, Limits, LiveEngine, SearchLimit, SearchUpdate, UciEngine,
     locate_stockfish,
 };
+use chess_analyzer_core::engine_install::{InstallProgress, install_stockfish, verify_handshake};
 use chess_analyzer_core::eval::Eval;
 use chess_analyzer_core::game::parse_pgn;
 use chess_analyzer_core::live::{LiveConfig, LiveEvent, LiveSession, LiveSink};
@@ -509,4 +510,50 @@ fn a_live_session_keeps_up_with_moves_entered_in_quick_succession() {
         events.iter().all(|e| !matches!(e, LiveEvent::Error { .. })),
         "no errors expected: {events:#?}"
     );
+}
+
+#[test]
+fn the_installer_accepts_a_real_engine() {
+    let Some(path) = locate_stockfish(None) else {
+        eprintln!("SKIPPED: Stockfish not found");
+        return;
+    };
+    let name = verify_handshake(&path).expect("a real Stockfish passes the handshake");
+    assert!(name.starts_with("Stockfish"), "{name}");
+}
+
+#[test]
+fn the_installer_refuses_a_file_that_is_not_an_engine() {
+    let path = std::env::temp_dir().join(format!(
+        "chess-analyzer-not-an-engine-{}.exe",
+        std::process::id()
+    ));
+    std::fs::write(&path, b"this is not a program").unwrap();
+    assert!(verify_handshake(&path).is_err());
+    let _ = std::fs::remove_file(&path);
+}
+
+/// Run on purpose: `cargo test -p chess-analyzer-core --test stockfish installs_the_real_release -- --ignored`
+#[test]
+#[ignore = "downloads about 81 MB from GitHub"]
+fn installs_the_real_release() {
+    if !cfg!(all(windows, target_arch = "x86_64")) {
+        return;
+    }
+    let dir = std::env::temp_dir().join(format!(
+        "chess-analyzer-real-install-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    let mut last = None;
+    let installed =
+        install_stockfish(&dir, &mut |p| last = Some(p)).expect("the real release installs");
+    assert!(
+        installed.engine.starts_with("Stockfish"),
+        "{}",
+        installed.engine
+    );
+    assert!(std::path::Path::new(&installed.path).is_file());
+    assert_eq!(last, Some(InstallProgress::Installing));
+    let _ = std::fs::remove_dir_all(&dir);
 }

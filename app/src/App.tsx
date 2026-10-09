@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { Api } from "./api/types";
 import { useLiveGame } from "./hooks/useLiveGame";
 import { type JobState, useReviewJob } from "./hooks/useReviewJob";
+import { useStockfishInstall } from "./hooks/useStockfishInstall";
 import { loadLiveDraft, saveLiveDraft } from "./lib/liveDraft";
 import { type RecordDraft, emptyDraft } from "./lib/record";
 import type { ReviewData } from "./lib/reviewData";
@@ -32,6 +33,7 @@ function reviewing(state: JobState): Reviewing | null {
 
 export function App({ api }: { api: Api }) {
   const job = useReviewJob(api);
+  const stockfishInstall = useStockfishInstall(api);
   const [view, setView] = useState<"home" | "settings" | "record" | "live">("home");
   // The game being entered by hand lives here, so it survives looking at another screen.
   const [draft, setDraft] = useState<RecordDraft>(emptyDraft);
@@ -67,7 +69,7 @@ export function App({ api }: { api: Api }) {
 
   let body: React.ReactNode;
   if (view === "settings") {
-    body = <SettingsScreen api={api} onDone={() => setView("home")} />;
+    body = <SettingsScreen api={api} install={stockfishInstall} onDone={() => setView("home")} />;
   } else if (view === "record" && !current) {
     body = (
       <RecordScreen
@@ -114,6 +116,7 @@ export function App({ api }: { api: Api }) {
         onStart={start}
         onOpen={open}
         notice={state.status === "failed" ? state.message : null}
+        onOpenSettings={() => setView("settings")}
       />
     );
   }

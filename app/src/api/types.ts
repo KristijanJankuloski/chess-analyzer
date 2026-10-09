@@ -1,5 +1,7 @@
 import type { EngineStatus } from "../generated/EngineStatus";
 import type { GameSummary } from "../generated/GameSummary";
+import type { InstallProgress } from "../generated/InstallProgress";
+import type { Installed } from "../generated/Installed";
 import type { JobEvent } from "../generated/JobEvent";
 import type { LiveEvent } from "../generated/LiveEvent";
 import type { PgnGameInfo } from "../generated/PgnGameInfo";
@@ -24,6 +26,15 @@ export interface Api {
   getSettings(): Promise<Settings>;
   saveSettings(settings: Settings): Promise<Settings>;
   checkEngine(): Promise<EngineStatus>;
+  /** Whether a Stockfish file exists where the settings point. Does not start it, so it is cheap. */
+  engineLocated(): Promise<boolean>;
+  /**
+   * Downloads Stockfish and points the settings at it. Progress arrives through
+   * `onInstallProgress`. Rejects with a message if it could not be downloaded or does not work.
+   */
+  downloadStockfish(): Promise<Installed>;
+  /** Subscribes to download progress; resolves to a function that unsubscribes. */
+  onInstallProgress(handler: (progress: InstallProgress) => void): Promise<() => void>;
   /** Subscribes to review events; resolves to a function that unsubscribes. */
   onJobEvent(handler: (event: JobEvent) => void): Promise<() => void>;
   /**

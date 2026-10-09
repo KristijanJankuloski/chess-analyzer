@@ -1,10 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { type Api, errorMessage } from "../api/types";
 import type { EngineStatus } from "../generated/EngineStatus";
 import type { Settings } from "../generated/Settings";
+import type { StockfishInstall } from "../hooks/useStockfishInstall";
+import { describeInstall, installFraction } from "../lib/install";
 
 export interface SettingsScreenProps {
   api: Api;
+  /** The Stockfish download, which lives in `App` so it outlasts this screen. */
+  install: StockfishInstall;
   onDone: () => void;
 }
 
@@ -18,14 +22,45 @@ const FIELDS: { key: NumberField; label: string; hint: string; max: number }[] =
   { key: "hash_mb", label: "Hash (MB)", hint: "Memory Stockfish may use.", max: 65536 },
 ];
 
-export function SettingsScreen({ api, onDone }: SettingsScreenProps) {
+export function SettingsScreen({ api, install, onDone }: SettingsScreenProps) {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [status, setStatus] = useState<EngineStatus | null>(null);
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
+  // Only the newest engine check may set the status, so a slow earlier one cannot undo a newer one.
+  const latestCheck = useRef(0);
+  // A download that finished before this screen opened is already reflected by what it loads.
+  const seenFinished = useRef(install.finished);
 
   useEffect(() => {
     api.getSettings().then(setSettings, (e) => setMessage({ text: errorMessage(e), error: true }));
   }, [api]);
+
+  // Know whether Stockfish works as soon as the screen opens, so a missing engine is obvious.
+  useEffect(() => {
+    const mine = ++latestCheck.current;
+    api.checkEngine().then(
+      (checked) => {
+        if (latestCheck.current === mine) setStatus(checked);
+      },
+      () => undefined,
+    );
+  }, [api]);
+
+  // A download that finishes while this screen is open (even one started before it opened).
+  useEffect(() => {
+    if (install.finished === seenFinished.current || !install.result) return;
+    seenFinished.current = install.finished;
+    if ("installed" in install.result) {
+      const { installed } = install.result;
+      // The app saved the new path itself; show it without touching other unsaved edits.
+      setSettings((current) => current && { ...current, engine_path: installed.path });
+      latestCheck.current++;
+      setStatus({ found: true, name: installed.engine, error: null });
+      setMessage({ text: `Installed ${installed.engine}.`, error: false });
+    } else {
+      setMessage({ text: install.result.error, error: true });
+    }
+  }, [install.finished, install.result]);
 
   if (!settings) {
     return <p className="muted">{message ? message.text : "Loading settings…"}</p>;
@@ -44,7 +79,17 @@ export function SettingsScreen({ api, onDone }: SettingsScreenProps) {
 
   const check = async () => {
     // The engine is checked with the saved settings, so save the edited path first.
-    if (await save()) setStatus(await api.checkEngine());
+    if (await save()) {
+      const mine = ++latestCheck.current;
+      const checked = await api.checkEngine();
+      if (latestCheck.current === mine) setStatus(checked);
+    }
+  };
+
+  // The label repeats the pinned version in crates/core/src/engine_install.rs.
+  const download = () => {
+    setMessage(null);
+    install.start();
   };
 
   return (
@@ -69,6 +114,23 @@ export function SettingsScreen({ api, onDone }: SettingsScreenProps) {
           </span>
         )}
       </div>
+      {status && !status.found && (
+        <div className="settings__download">
+          <button type="button" onClick={download} disabled={install.downloading}>
+            Download Stockfish 19
+          </button>
+          {install.downloading && (
+            <>
+              <progress value={installFraction(install.progress) ?? undefined} max={1} aria-label="Download progress" />
+              <span role="status">{describeInstall(install.progress)}</span>
+            </>
+          )}
+          <p className="muted">
+            About 81 MB, from the official Stockfish release on GitHub. Stockfish is free software under the
+            GNU GPL v3 and runs as a separate program.
+          </p>
+        </div>
+      )}
 
       {FIELDS.map(({ key, label, hint, max }) => (
         <div className="settings__field" key={key}>

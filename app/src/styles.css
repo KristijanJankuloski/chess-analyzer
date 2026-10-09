@@ -651,3 +651,26 @@ h2 {
   opacity: 0.6;
   font-style: italic;
 }
+
+.settings__download {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 12px;
+}
+
+.settings__download progress {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.home__notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}

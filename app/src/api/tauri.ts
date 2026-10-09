@@ -1,6 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
+import type { InstallProgress } from "../generated/InstallProgress";
 import type { JobEvent } from "../generated/JobEvent";
 import type { LiveEvent } from "../generated/LiveEvent";
 import type { Api } from "./types";
@@ -9,6 +10,8 @@ import type { Api } from "./types";
 export const REVIEW_EVENT = "review-event";
 /** The event name for live analysis events (see `LIVE_EVENT` in src-tauri). */
 export const LIVE_EVENT = "live-event";
+/** The event name for Stockfish download progress (see `INSTALL_EVENT` in src-tauri). */
+export const INSTALL_EVENT = "install-progress";
 
 /** The real implementation, backed by the Rust commands. */
 export const tauriApi: Api = {
@@ -29,6 +32,10 @@ export const tauriApi: Api = {
   getSettings: () => invoke("get_settings"),
   saveSettings: (settings) => invoke("save_settings", { settings }),
   checkEngine: () => invoke("check_engine_status"),
+  engineLocated: () => invoke("engine_located"),
+  downloadStockfish: () => invoke("download_stockfish"),
+  onInstallProgress: (handler) =>
+    listen<InstallProgress>(INSTALL_EVENT, (event) => handler(event.payload)),
   onJobEvent: (handler) =>
     listen<JobEvent>(REVIEW_EVENT, (event) => handler(event.payload)),
   liveUpdate: (revision, moves) => invoke("live_update", { revision, moves }),
