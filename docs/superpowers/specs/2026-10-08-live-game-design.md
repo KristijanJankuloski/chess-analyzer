@@ -9,7 +9,7 @@ The user watches a game somewhere else (a tournament broadcast, a game over the 
 
 Success: after each move is entered, the bar and the best-move arrow are on screen within about a second and keep improving while the user waits for the next move. Everything stays local; nothing is fetched from the internet.
 
-Core principle (from `AGENTS.md`) is unchanged: Stockfish is the authority on chess. This feature has no LLM of its own; the one exception, an Explain button that sends the selected move to a local model on request, is specified in `2026-10-09-llm-narrator-design.md`.
+Core principle (from `AGENTS.md`) is unchanged: Stockfish is the authority on chess. This feature has no LLM of its own. Its per-move commentary (template text built from the engine's lines, and later an optional Explain button for a local model) is specified in `2026-10-09-move-commentary-design.md`.
 
 ## Decisions made during brainstorming
 
