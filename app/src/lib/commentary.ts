@@ -9,8 +9,8 @@ const ARTICLES = {
 } as const;
 
 /**
- * One plain sentence about a move, from the engine's numbers. This is the slot the LLM
- * commentary will fill later; until then it is built from the classification alone.
+ * One plain sentence about a move, from the classification alone. It is what the screens show
+ * until the move has commentary of its own (see `commentaryFor`).
  */
 export function describeMove(move: MoveReview | null, ply: number): string {
   if (ply === 0) return "The starting position.";
@@ -36,4 +36,14 @@ export function describeMove(move: MoveReview | null, ply: number): string {
       }
       return move.san;
   }
+}
+
+/**
+ * What to show under the board for a move: the commentary the backend wrote from the engine's
+ * lines when there is some, otherwise the short sentence built from the classification (a review
+ * saved before commentary existed, a move still being analysed, or a position that could not be
+ * read).
+ */
+export function commentaryFor(move: MoveReview | null, ply: number): string {
+  return move?.commentary ?? describeMove(move, ply);
 }

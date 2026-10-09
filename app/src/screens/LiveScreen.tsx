@@ -10,6 +10,7 @@ import { PromotionChooser } from "../components/PromotionChooser";
 import { SummaryPanel } from "../components/SummaryPanel";
 import type { ReviewSource } from "../generated/ReviewSource";
 import { useBoardEntry } from "../hooks/useBoardEntry";
+import { commentaryFor } from "../lib/commentary";
 import { type LiveState, liveBoard, liveView } from "../lib/live";
 import {
   type RecordDraft,
@@ -123,6 +124,14 @@ export function LiveScreen({ draft, onDraftChange, live, onRestart, onReview, on
           <p className="review__commentary" role="status">
             {statusText(recording)}
           </p>
+          {ply > 0 && (
+            <p className="review__commentary live__commentary" aria-live="polite">
+              {commentaryFor(view.data.moves[ply - 1], ply)}
+              {view.data.moves[ply - 1] && view.provisional[ply - 1] && (
+                <span className="live__provisional"> This may change as the engine searches deeper.</span>
+              )}
+            </p>
+          )}
           {entry.pending && (
             <PromotionChooser onChoose={entry.promote} onCancel={entry.cancelPromotion} />
           )}

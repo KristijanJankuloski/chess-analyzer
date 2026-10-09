@@ -31,7 +31,7 @@ describe("ReviewScreen", () => {
     await user.click(screen.getByRole("button", { name: "Last position" }));
     expect(screen.getByTestId("chessboard")).toHaveAttribute("data-fen", foolsMate.game.positions[4]);
     await user.click(screen.getByRole("button", { name: "Previous move" }));
-    expect(screen.getByText(/^g4 is a blunder\./)).toBeInTheDocument();
+    expect(screen.getByText(/^g4 was a blunder; Nc3 was better\./)).toBeInTheDocument();
     expect(lastBoardOptions().arrows).toHaveLength(1); // the move it should have played
   });
 

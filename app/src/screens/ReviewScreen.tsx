@@ -6,7 +6,7 @@ import { MoveList } from "../components/MoveList";
 import { NavControls } from "../components/NavControls";
 import { SummaryPanel } from "../components/SummaryPanel";
 import { boardView } from "../lib/board";
-import { describeMove } from "../lib/commentary";
+import { commentaryFor } from "../lib/commentary";
 import type { ReviewData } from "../lib/reviewData";
 import { moveRows } from "../lib/rows";
 
@@ -93,7 +93,7 @@ export function ReviewScreen({ data, status, message, onCancel, onBack }: Review
             />
           </div>
           <p className="review__commentary" aria-live="polite">
-            {describeMove(ply === 0 ? null : data.moves[ply - 1], ply)}
+            {commentaryFor(ply === 0 ? null : data.moves[ply - 1], ply)}
           </p>
           <NavControls
             ply={ply}
