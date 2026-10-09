@@ -99,6 +99,10 @@ Brilliant, Great, Miss and Book use extra rules on top of these bands (see the d
 
 **These thresholds are a starting point, not final.** Calibrate them (e.g. consider win-probability-based loss rather than raw centipawns, and account for already-decided positions). Keep thresholds in one configurable place.
 
+### Commentary
+
+Every move also gets a few plain sentences, written from the engine's own lines with no model involved. `crates/core/src/facts.rs` works out a ranked list of verifiable facts (material along the lines, forced mates, pieces left short of protection, a king driven out of castling, forks and pins) and `crates/core/src/commentary.rs` turns them into text. `review::review_move` stores the result in `MoveReview.commentary`, so finished reviews and live games share it. The local LLM described below is an optional second renderer over the same facts; see `docs/superpowers/specs/2026-10-09-move-commentary-design.md`.
+
 ## LLM Integration
 
 Do not build around a specific model. Use a provider abstraction:
