@@ -209,11 +209,17 @@ pub fn render(d: &Digest) -> String {
             .map(|f| sentence(f, d))
             .collect();
         if causes.is_empty() {
-            return format!(
-                "{first} The evaluation goes from {} to {}.",
-                eval_phrase(d.eval_before),
-                eval_phrase(d.eval_after)
-            );
+            let (before, after) = (eval_phrase(d.eval_before), eval_phrase(d.eval_after));
+            // Two equal phrases would read as no change at all, so give the numbers instead.
+            return if before == after {
+                format!(
+                    "{first} The evaluation goes from {} to {} (from White's point of view).",
+                    d.eval_before.display(),
+                    d.eval_after.display()
+                )
+            } else {
+                format!("{first} The evaluation goes from {before} to {after}.")
+            };
         }
         return format!("{first} {}", causes.join(" "));
     }
@@ -225,10 +231,15 @@ pub fn render(d: &Digest) -> String {
         text.push_str(&format!(" Best was {best}."));
     }
     let achievement = d
-        .facts
-        .iter()
-        .find(|f| !f.is_consequence())
-        .map(|f| sentence(f, d))
+        .played
+        .mate
+        .then(|| "It delivers checkmate.".to_string())
+        .or_else(|| {
+            d.facts
+                .iter()
+                .find(|f| !f.is_consequence())
+                .map(|f| sentence(f, d))
+        })
         .or_else(|| {
             let notable = matches!(d.class, MoveClass::Brilliant | MoveClass::Great);
             describe_move(&d.played, notable)
@@ -397,6 +408,31 @@ mod tests {
         assert_eq!(render(&d), "Qh4# is the best move. It delivers checkmate.");
         d.class = MoveClass::Book;
         assert_eq!(render(&d), "Qh4# is a book move. It delivers checkmate.");
+    }
+
+    #[test]
+    fn a_mating_move_says_checkmate_even_when_a_fork_is_on_the_digest() {
+        let mut d = base(MoveClass::Best);
+        d.san = "Rd8#".into();
+        d.ply = 2;
+        d.played_is_best = true;
+        d.played.mate = true;
+        d.facts = vec![Fact::Forks {
+            attacker: Kind::Rook,
+            targets: vec![spot(Kind::King, "h8"), spot(Kind::Knight, "d3")],
+        }];
+        assert_eq!(render(&d), "Rd8# is the best move. It delivers checkmate.");
+    }
+
+    #[test]
+    fn when_both_evaluations_read_alike_the_numbers_are_given() {
+        let mut d = base(MoveClass::Inaccuracy);
+        d.eval_before = Eval::Cp(200);
+        d.eval_after = Eval::Cp(250);
+        assert_eq!(
+            render(&d),
+            "Nf6 is an inaccuracy; Qf6 was better. The evaluation goes from +2.00 to +2.50 (from White's point of view)."
+        );
     }
 
     #[test]

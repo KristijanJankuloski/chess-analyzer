@@ -2635,3 +2635,16 @@ git commit -m "Document the commentary" -m "Co-Authored-By: Claude Sonnet 5.5 <n
 **Placeholders:** none; every code step carries the code.
 
 **Type consistency:** `CommentaryInput`, `Digest`, `Fact` variants, `Kind`, `Spot` and `MoveFacts` are defined in Task 3 and used with the same names in Tasks 4 to 6; `digest_for` and `backfill_commentary` are defined in Task 5 and used in Tasks 5 and 6; `commentaryFor` is defined and used in Task 7.
+
+---
+
+## Changes made after the whole-branch review
+
+A fresh reviewer read the finished branch and found four accuracy problems that the plan's tests did not cover. Each was fixed test-first (the test failed, then passed) in one pass; the code in the tasks above is the code as first written, and the repository holds the corrected version.
+
+- **A mating move is never called a fork or a pin**, and a mating move always says "It delivers checkmate." first (`facts.rs`: the played move's fork and pin facts are skipped when it gives mate; `commentary.rs`: mate first).
+- **The best line is the baseline for every consequence.** A piece, a forced king move, a fork or a pin is only blamed on the played move when the engine's best line does not have it too. For `6...Nf6` this removed `b7` (the best move `6...Qf6` loses it as well), so the sentence now reads: *After Qb3, the pawn on f7 is attacked and short of protection. In the engine's line Qb3 Bc5 Bxf7+ Ke7, Black's king is driven to e7 and can no longer castle.*
+- **Material facts need a horizon of at least two plies**, so a capture that is simply recaptured is no longer called a win.
+- **The fallback sentence gives the numbers** when both evaluations fall in the same wording band ("from +2.00 to +2.50 (from White's point of view)").
+
+Not changed: exchange evaluation still ignores absolute pins (a documented approximation).

@@ -799,7 +799,7 @@
         "best_san": "Qf6",
         "best_uci": "d8f6",
         "class": "mistake",
-        "commentary": "Nf6 is a mistake; Qf6 was better. After Qb3, the pawns on b7 and f7 are both attacked and short of protection. In the engine's line Qb3 Bc5 Bxf7+ Ke7, Black's king is driven to e7 and can no longer castle.",
+        "commentary": "Nf6 is a mistake; Qf6 was better. After Qb3, the pawn on f7 is attacked and short of protection. In the engine's line Qb3 Bc5 Bxf7+ Ke7, Black's king is driven to e7 and can no longer castle.",
         "critical": true,
         "eval_after": {
           "kind": "cp",
@@ -1579,7 +1579,7 @@
         "best_san": "Rd8#",
         "best_uci": "d1d8",
         "class": "best",
-        "commentary": "Rd8# is the engine's top choice. It forks the knight on b8 and the king on e8.",
+        "commentary": "Rd8# is the engine's top choice. It delivers checkmate.",
         "critical": false,
         "eval_after": {
           "kind": "checkmate",

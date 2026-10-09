@@ -15,7 +15,7 @@ critical plies: [8, 12, 13, 18, 19, 20, 21, 27, 30]
  10 dxe5     Best       loss=  0.0 best=dxe5
  11 Bc4      Good       loss=  2.1 best=Qb3
  12 Nf6      Mistake    loss= 11.4 best=Qf6
-      > Nf6 is a mistake; Qf6 was better. After Qb3, the pawns on b7 and f7 are both attacked and short of protection. In the engine's line Qb3 Bc5 Bxf7+ Ke7, Black's king is driven to e7 and can no longer castle.
+      > Nf6 is a mistake; Qf6 was better. After Qb3, the pawn on f7 is attacked and short of protection. In the engine's line Qb3 Bc5 Bxf7+ Ke7, Black's king is driven to e7 and can no longer castle.
  13 Qb3      Great      loss=  0.0 best=Qb3
       > Qb3 is a great find. It wins 1 point of material in the engine's line.
  14 Qe7      Good       loss=  3.2 best=Bc5

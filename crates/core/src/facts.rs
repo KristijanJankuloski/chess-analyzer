@@ -297,6 +297,7 @@ pub fn digest(input: &CommentaryInput<'_>) -> Option<Digest> {
         .as_ref()
         .map(|line| balance(line.at(horizon), mover));
 
+    let played_facts = move_facts(&start, played_move);
     let mut facts = Vec::new();
 
     match review.eval_after {
@@ -327,7 +328,8 @@ pub fn digest(input: &CommentaryInput<'_>) -> Option<Digest> {
     let mate_in_play = matches!(review.eval_after, Eval::Mate(_) | Eval::Checkmate(_))
         || line_ends_in_mate(&played_line)
         || best_line.as_ref().is_some_and(line_ends_in_mate);
-    if !mate_in_play {
+    // A one-ply comparison ignores recaptures, so it says nothing either.
+    if !mate_in_play && horizon >= 2 {
         if let Some(best) = material_best
             && best - material_played >= 1
         {
@@ -342,14 +344,36 @@ pub fn digest(input: &CommentaryInput<'_>) -> Option<Digest> {
         }
     }
 
+    // What the best move would have allowed anyway is no reason to prefer it, so each consequence
+    // below is dropped when the best line has it too.
+    let best_reply = best_line.as_ref().filter(|line| line.moves.len() >= 2);
+    let best_loose = best_reply.map_or_else(Vec::new, |line| {
+        let after_reply = line.at(2);
+        if after_reply.is_game_over() {
+            Vec::new()
+        } else {
+            exchange::loose_pieces(after_reply, mover)
+        }
+    });
+    let best_reply_forks =
+        best_reply.is_some_and(|line| motifs::fork(&line.positions[1], line.moves[1]).is_some());
+    let best_reply_pins =
+        best_reply.is_some_and(|line| motifs::pin(&line.positions[1], line.moves[1]).is_some());
+    let best_drives_king = best_line
+        .as_ref()
+        .is_some_and(|line| king::forced_king_move(line, mover).is_some());
+
     if played_line.moves.len() >= 2 {
         let reply = played_line.sans[1].clone();
         let after_reply = played_line.at(2);
         // Once the reply ends the game there is nothing left to defend.
-        let loose = if after_reply.is_game_over() {
+        let loose: Vec<_> = if after_reply.is_game_over() {
             Vec::new()
         } else {
             exchange::loose_pieces(after_reply, mover)
+                .into_iter()
+                .filter(|piece| !best_loose.contains(piece))
+                .collect()
         };
         if !loose.is_empty() {
             let shown: Vec<_> = loose.into_iter().take(2).collect();
@@ -359,14 +383,14 @@ pub fn digest(input: &CommentaryInput<'_>) -> Option<Digest> {
             });
         }
         let reply_from = &played_line.positions[1];
-        if let Some(fork) = motifs::fork(reply_from, played_line.moves[1]) {
+        if !best_reply_forks && let Some(fork) = motifs::fork(reply_from, played_line.moves[1]) {
             facts.push(Fact::AllowsFork {
                 reply: reply.clone(),
                 attacker: fork.attacker.into(),
                 targets: spots(&fork.targets),
             });
         }
-        if let Some(pin) = motifs::pin(reply_from, played_line.moves[1]) {
+        if !best_reply_pins && let Some(pin) = motifs::pin(reply_from, played_line.moves[1]) {
             facts.push(Fact::AllowsPin {
                 reply,
                 slider: pin.slider.into(),
@@ -374,16 +398,20 @@ pub fn digest(input: &CommentaryInput<'_>) -> Option<Digest> {
             });
         }
     }
-    if let Some(fact) = king::forced_king_move(&played_line, mover) {
+    if !best_drives_king && let Some(fact) = king::forced_king_move(&played_line, mover) {
         facts.push(fact);
     }
-    if let Some(fork) = motifs::fork(&start, played_move) {
+    if !played_facts.mate
+        && let Some(fork) = motifs::fork(&start, played_move)
+    {
         facts.push(Fact::Forks {
             attacker: fork.attacker.into(),
             targets: spots(&fork.targets),
         });
     }
-    if let Some(pin) = motifs::pin(&start, played_move) {
+    if !played_facts.mate
+        && let Some(pin) = motifs::pin(&start, played_move)
+    {
         facts.push(Fact::Pins {
             slider: pin.slider.into(),
             pinned: spot(pin.pinned.0, pin.pinned.1),
@@ -404,7 +432,7 @@ pub fn digest(input: &CommentaryInput<'_>) -> Option<Digest> {
         eval_after: review.eval_after,
         played_is_best,
         best_san: review.best_san.clone(),
-        played: move_facts(&start, played_move),
+        played: played_facts,
         best: best_move.map(|mv| move_facts(&start, mv)),
         played_line: played_line.sans.clone(),
         best_line: best_line.map(|line| line.sans).unwrap_or_default(),
@@ -494,26 +522,44 @@ mod tests {
     }
 
     #[test]
-    fn the_digest_finds_the_pieces_left_short_of_protection_and_the_driven_king() {
+    fn the_digest_blames_only_what_the_best_move_would_have_avoided() {
+        // After 7.Qb3 both b7 and f7 are attacked. But the best move 6...Qf6 also loses b7 (the
+        // engine's own line goes 7.Qb3 Nd7 8.Qxb7), so only f7 is down to 6...Nf6.
         let d = nf6_digest();
         assert!(d.facts.contains(&Fact::Loose {
             reply: "Qb3".into(),
-            pieces: vec![
-                Spot {
-                    kind: Kind::Pawn,
-                    square: "b7".into()
-                },
-                Spot {
-                    kind: Kind::Pawn,
-                    square: "f7".into()
-                },
-            ],
+            pieces: vec![Spot {
+                kind: Kind::Pawn,
+                square: "f7".into()
+            }],
         }));
         assert!(d.facts.contains(&Fact::ForcedKingMove {
             line: strings(&["Qb3", "Bc5", "Bxf7+", "Ke7"]),
             square: "e7".into(),
             loses_castling: true,
         }));
+    }
+
+    #[test]
+    fn a_forced_king_move_the_best_line_shares_is_not_blamed_on_the_move() {
+        // If the best move 6...Nc6 allows exactly the same 7.Qb3 Bc5 8.Bxf7+ Ke7, the driven king
+        // is no reason to prefer it.
+        let mut review = nf6_review();
+        review.best_uci = Some("b8c6".into());
+        review.best_san = Some("Nc6".into());
+        review.best_pv = strings(&["b8c6", "f3b3", "f8c5", "c4f7", "e8e7", "f7c4"]);
+        let reply = nf6_reply();
+        let d = digest(&CommentaryInput {
+            fen_before: BEFORE_NF6,
+            review: &review,
+            reply_pv: &reply,
+        })
+        .expect("a digest");
+        assert!(
+            !d.facts
+                .iter()
+                .any(|f| matches!(f, Fact::ForcedKingMove { .. }))
+        );
     }
 
     #[test]
@@ -745,6 +791,31 @@ mod tests {
     }
 
     #[test]
+    fn a_mating_move_is_not_also_called_a_fork() {
+        // Rd8# mates along the eighth rank and also attacks the loose knight on d3.
+        let mut review = nf6_review();
+        review.side = Side::White;
+        review.class = MoveClass::Best;
+        review.san = "Rd8#".into();
+        review.uci = "d6d8".into();
+        review.best_uci = Some("d6d8".into());
+        review.best_san = Some("Rd8#".into());
+        review.best_pv = strings(&["d6d8"]);
+        let d = digest(&CommentaryInput {
+            fen_before: "7k/6pp/3R4/8/8/3n4/8/K7 w - - 0 1",
+            review: &review,
+            reply_pv: &[],
+        })
+        .expect("a digest");
+        assert!(d.played.mate);
+        assert!(
+            !d.facts
+                .iter()
+                .any(|f| matches!(f, Fact::Forks { .. } | Fact::Pins { .. }))
+        );
+    }
+
+    #[test]
     fn nothing_is_loose_after_a_reply_that_ends_the_game() {
         // 1. f3 e5 2. g4 Qh4#: the g4 pawn is "attacked" but the game is over.
         let fen = "rnbqkbnr/pppp1ppp/8/4p3/8/5P2/PPPPP1PP/RNBQKBNR w KQkq - 0 2";
@@ -820,6 +891,30 @@ mod tests {
     }
 
     #[test]
+    fn a_capture_that_may_be_recaptured_is_not_called_a_win_without_a_reply() {
+        // Qxd5 takes a knight that the pawn on e6 defends; with no reply in the line the digest
+        // cannot know the queen is lost for it.
+        let mut review = nf6_review();
+        review.side = Side::White;
+        review.class = MoveClass::Best;
+        review.san = "Qxd5+".into();
+        review.uci = "d1d5".into();
+        review.best_uci = Some("d1d5".into());
+        review.best_pv = strings(&["d1d5"]);
+        let d = digest(&CommentaryInput {
+            fen_before: "3k4/8/4p3/3n4/8/8/8/3QK3 w - - 0 1",
+            review: &review,
+            reply_pv: &[],
+        })
+        .expect("a digest");
+        assert!(
+            d.facts
+                .iter()
+                .all(|f| !matches!(f, Fact::WinsMaterial { .. } | Fact::MaterialLost { .. }))
+        );
+    }
+
+    #[test]
     fn winning_material_along_the_line_is_a_fact() {
         // White takes a free knight.
         let fen = "3k4/8/8/3n4/8/8/8/3QK3 w - - 0 1";
@@ -830,11 +925,12 @@ mod tests {
         review.class = MoveClass::Best;
         review.best_uci = Some("d1d5".into());
         review.best_san = Some("Qxd5+".into());
-        review.best_pv = strings(&["d1d5"]);
+        review.best_pv = strings(&["d1d5", "d8c8"]);
+        let reply = strings(&["d8c8"]);
         let d = digest(&CommentaryInput {
             fen_before: fen,
             review: &review,
-            reply_pv: &[],
+            reply_pv: &reply,
         })
         .expect("a digest");
         assert_eq!(d.played.captures, Some(Kind::Knight));
