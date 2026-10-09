@@ -1,12 +1,13 @@
 //! The desktop shell: a thin layer that forwards frontend commands to `chess-analyzer-core`
 //! and core's job events back to the frontend. All behaviour worth testing lives in core.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use chess_analyzer_core::cache::{CachedAnalyzer, open_database};
 use chess_analyzer_core::classify::Thresholds;
 use chess_analyzer_core::engine::{Analyzer, EngineError};
+use chess_analyzer_core::engine_install::{InstallLock, Installed, install_stockfish};
 use chess_analyzer_core::game::{
     MAX_PGN_BYTES, PgnGameInfo, describe_pgn, read_pgn_file as read_pgn_file_limited,
 };
@@ -22,6 +23,7 @@ use tauri::{Emitter, Manager, State};
 /// The event names the frontend listens on.
 const REVIEW_EVENT: &str = "review-event";
 const LIVE_EVENT: &str = "live-event";
+const INSTALL_EVENT: &str = "install-progress";
 
 struct TauriSink(tauri::AppHandle);
 
@@ -75,6 +77,9 @@ struct AppState {
     settings_file: SettingsFile,
     handle: tauri::AppHandle,
     live: Mutex<Option<RunningLive>>,
+    /// Where a downloaded Stockfish is kept (inside the app's data directory).
+    engines_dir: PathBuf,
+    install_lock: InstallLock,
 }
 
 fn message(e: impl std::fmt::Display) -> String {
@@ -198,6 +203,26 @@ async fn check_engine_status(state: State<'_, AppState>) -> Result<EngineStatus,
         .map_err(message)
 }
 
+/// Downloads Stockfish into the app's data directory and points the settings at it. The download
+/// is large, so it runs off the main thread, and a second request while one is running is refused.
+#[tauri::command(async)]
+fn download_stockfish(state: State<'_, AppState>) -> Result<Installed, String> {
+    let Some(_permit) = state.install_lock.try_acquire() else {
+        return Err("Stockfish is already being downloaded.".into());
+    };
+    let handle = state.handle.clone();
+    let installed = install_stockfish(&state.engines_dir, &mut |progress| {
+        if let Err(e) = handle.emit(INSTALL_EVENT, &progress) {
+            eprintln!("could not send {INSTALL_EVENT}: {e}");
+        }
+    })
+    .map_err(message)?;
+    let mut settings = state.settings.lock().map_err(message)?;
+    settings.engine_path = Some(installed.path.clone());
+    state.settings_file.save(&settings).map_err(message)?;
+    Ok(installed)
+}
+
 fn engine_factory(cache_path: std::path::PathBuf) -> Arc<EngineFactory> {
     Arc::new(
         move |settings: &Settings| -> Result<Box<dyn Analyzer + Send>, EngineError> {
@@ -239,6 +264,8 @@ pub fn run() {
                 settings_file,
                 handle: app.handle().clone(),
                 live: Mutex::new(None),
+                engines_dir: dir.join("engines"),
+                install_lock: InstallLock::default(),
             });
             Ok(())
         })
@@ -253,6 +280,7 @@ pub fn run() {
             get_settings,
             save_settings,
             check_engine_status,
+            download_stockfish,
             live_update,
             live_pause,
         ])
