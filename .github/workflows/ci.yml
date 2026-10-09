@@ -46,6 +46,11 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+      - name: Version fields agree, and the version script works
+        working-directory: .
+        run: |
+          node scripts/version.mjs check
+          node --test scripts/version.test.mjs
 
   desktop:
     runs-on: windows-latest
