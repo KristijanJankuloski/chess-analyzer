@@ -10,28 +10,37 @@ critical plies: [8, 12, 13, 18, 19, 20, 21, 27, 30]
   6 Bg4      Book       loss=  4.6 best=Nf6
   7 dxe5     Book       loss=  0.5 best=Be3
   8 Bxf3     Mistake    loss= 10.1 best=Nc6
+      > Bxf3 is a mistake; Nc6 was better. The evaluation goes from slightly better for White to clearly better for White.
   9 Qxf3     Best       loss=  0.0 best=Qxf3
  10 dxe5     Best       loss=  0.0 best=dxe5
  11 Bc4      Good       loss=  2.1 best=Qb3
  12 Nf6      Mistake    loss= 11.4 best=Qf6
+      > Nf6 is a mistake; Qf6 was better. After Qb3, the pawns on b7 and f7 are both attacked and short of protection. In the engine's line Qb3 Bc5 Bxf7+ Ke7, Black's king is driven to e7 and can no longer castle.
  13 Qb3      Great      loss=  0.0 best=Qb3
+      > Qb3 is a great find. It wins 1 point of material in the engine's line.
  14 Qe7      Good       loss=  3.2 best=Bc5
  15 Nc3      Good       loss=  3.7 best=Qxb7
  16 c6       Best       loss=  0.0 best=c6
  17 Bg5      Best       loss=  0.0 best=Bg5
  18 b5       Mistake    loss= 13.4 best=Kd8
+      > b5 is a mistake; Kd8 was better. The evaluation goes from clearly better for White to winning for White.
  19 Nxb5     Great      loss=  0.0 best=Nxb5
+      > Nxb5 is a great find. It captures the pawn.
  20 cxb5     Inaccuracy loss=  7.5 best=Qb4+
+      > cxb5 is an inaccuracy; Qb4+ was better. In the engine's line Bxb5+ Kd8, Black's king is driven to d8 and can no longer castle.
  21 Bxb5+    Great      loss=  0.0 best=Bxb5+
+      > Bxb5+ is a great find. It wins 1 point of material in the engine's line.
  22 Nbd7     Good       loss=  2.7 best=Kd8
  23 O-O-O    Best       loss=  0.0 best=O-O-O
  24 Rd8      Good       loss=  1.5 best=Qc5
  25 Rxd7     Best       loss=  0.0 best=Rxd7
  26 Rxd7     Best       loss=  0.4 best=Nxd7
  27 Rd1      Great      loss=  0.0 best=Rd1
+      > Rd1 is a great find.
  28 Qe6      Good       loss=  1.6 best=Qd6
  29 Bxd7+    Best       loss=  0.0 best=Bxd7+
  30 Nxd7     Great      loss=  0.0 best=Nxd7
+      > Nxd7 is a great move. It captures the bishop.
  31 Qb8+     Best       loss=  0.0 best=Qb8+
  32 Nxb8     Best       loss=  0.0 best=Nxb8
  33 Rd8#     Best       loss=  0.0 best=Rd8#

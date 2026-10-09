@@ -2073,7 +2073,6 @@ In `crates/core/tests/golden.rs`: change the `review` import to `use chess_analy
                 m.commentary.as_deref().unwrap_or("(no commentary)")
             ));
         }
-    }
 ```
 
 and add the grounding test above `/// Wraps an analyzer and remembers every answer, in call order.`:

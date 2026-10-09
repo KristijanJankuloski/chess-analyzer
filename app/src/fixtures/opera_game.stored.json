@@ -370,7 +370,7 @@
         "best_san": "e4",
         "best_uci": "e2e4",
         "class": "book",
-        "commentary": null,
+        "commentary": "e4 is a book move.",
         "critical": false,
         "eval_after": {
           "kind": "cp",
@@ -405,7 +405,7 @@
         "best_san": "e5",
         "best_uci": "e7e5",
         "class": "book",
-        "commentary": null,
+        "commentary": "e5 is a book move.",
         "critical": false,
         "eval_after": {
           "kind": "cp",
@@ -447,7 +447,7 @@
         "best_san": "Nf3",
         "best_uci": "g1f3",
         "class": "book",
-        "commentary": null,
+        "commentary": "Nf3 is a book move.",
         "critical": false,
         "eval_after": {
           "kind": "cp",
@@ -485,7 +485,7 @@
         "best_san": "Nf6",
         "best_uci": "g8f6",
         "class": "book",
-        "commentary": null,
+        "commentary": "d6 is a book move.",
         "critical": false,
         "eval_after": {
           "kind": "cp",
@@ -524,7 +524,7 @@
         "best_san": "d4",
         "best_uci": "d2d4",
         "class": "book",
-        "commentary": null,
+        "commentary": "d4 is a book move.",
         "critical": false,
         "eval_after": {
           "kind": "cp",
@@ -558,7 +558,7 @@
         "best_san": "Nf6",
         "best_uci": "g8f6",
         "class": "book",
-        "commentary": null,
+        "commentary": "Bg4 is a book move.",
         "critical": false,
         "eval_after": {
           "kind": "cp",
@@ -595,7 +595,7 @@
         "best_san": "Be3",
         "best_uci": "c1e3",
         "class": "book",
-        "commentary": null,
+        "commentary": "dxe5 is a book move.",
         "critical": false,
         "eval_after": {
           "kind": "cp",
@@ -634,7 +634,7 @@
         "best_san": "Nc6",
         "best_uci": "b8c6",
         "class": "mistake",
-        "commentary": null,
+        "commentary": "Bxf3 is a mistake; Nc6 was better. The evaluation goes from slightly better for White to clearly better for White.",
         "critical": true,
         "eval_after": {
           "kind": "cp",
@@ -667,7 +667,7 @@
         "best_san": "Qxf3",
         "best_uci": "d1f3",
         "class": "best",
-        "commentary": null,
+        "commentary": "Qxf3 is the engine's top choice. It wins 2 points of material in the engine's line.",
         "critical": false,
         "eval_after": {
           "kind": "cp",
@@ -707,7 +707,7 @@
         "best_san": "dxe5",
         "best_uci": "d6e5",
         "class": "best",
-        "commentary": null,
+        "commentary": "dxe5 is the best move.",
         "critical": false,
         "eval_after": {
           "kind": "cp",
@@ -756,7 +756,7 @@
         "best_san": "Qb3",
         "best_uci": "f3b3",
         "class": "good",
-        "commentary": null,
+        "commentary": "Bc4 is a good move. Best was Qb3. It wins 1 point of material in the engine's line.",
         "critical": false,
         "eval_after": {
           "kind": "cp",
@@ -799,7 +799,7 @@
         "best_san": "Qf6",
         "best_uci": "d8f6",
         "class": "mistake",
-        "commentary": null,
+        "commentary": "Nf6 is a mistake; Qf6 was better. After Qb3, the pawns on b7 and f7 are both attacked and short of protection. In the engine's line Qb3 Bc5 Bxf7+ Ke7, Black's king is driven to e7 and can no longer castle.",
         "critical": true,
         "eval_after": {
           "kind": "cp",
@@ -838,7 +838,7 @@
         "best_san": "Qb3",
         "best_uci": "f3b3",
         "class": "great",
-        "commentary": null,
+        "commentary": "Qb3 is a great find. It wins 1 point of material in the engine's line.",
         "critical": true,
         "eval_after": {
           "kind": "cp",
@@ -873,7 +873,7 @@
         "best_san": "Bc5",
         "best_uci": "f8c5",
         "class": "good",
-        "commentary": null,
+        "commentary": "Qe7 is a good move. Best was Bc5.",
         "critical": false,
         "eval_after": {
           "kind": "cp",
@@ -913,7 +913,7 @@
         "best_san": "Qxb7",
         "best_uci": "b3b7",
         "class": "good",
-        "commentary": null,
+        "commentary": "Nc3 is a good move. Best was Qxb7.",
         "critical": false,
         "eval_after": {
           "kind": "cp",
@@ -949,7 +949,7 @@
         "best_san": "c6",
         "best_uci": "c7c6",
         "class": "best",
-        "commentary": null,
+        "commentary": "c6 is the best move.",
         "critical": false,
         "eval_after": {
           "kind": "cp",
@@ -987,7 +987,7 @@
         "best_san": "Bg5",
         "best_uci": "c1g5",
         "class": "best",
-        "commentary": null,
+        "commentary": "Bg5 is the engine's top choice. It wins 1 point of material in the engine's line.",
         "critical": false,
         "eval_after": {
           "kind": "cp",
@@ -1028,7 +1028,7 @@
         "best_san": "Kd8",
         "best_uci": "e8d8",
         "class": "mistake",
-        "commentary": null,
+        "commentary": "b5 is a mistake; Kd8 was better. The evaluation goes from clearly better for White to winning for White.",
         "critical": true,
         "eval_after": {
           "kind": "cp",
@@ -1069,7 +1069,7 @@
         "best_san": "Nxb5",
         "best_uci": "c3b5",
         "class": "great",
-        "commentary": null,
+        "commentary": "Nxb5 is a great find. It captures the pawn.",
         "critical": true,
         "eval_after": {
           "kind": "cp",
@@ -1112,7 +1112,7 @@
         "best_san": "Qb4+",
         "best_uci": "e7b4",
         "class": "inaccuracy",
-        "commentary": null,
+        "commentary": "cxb5 is an inaccuracy; Qb4+ was better. In the engine's line Bxb5+ Kd8, Black's king is driven to d8 and can no longer castle.",
         "critical": true,
         "eval_after": {
           "kind": "cp",
@@ -1152,7 +1152,7 @@
         "best_san": "Bxb5+",
         "best_uci": "c4b5",
         "class": "great",
-        "commentary": null,
+        "commentary": "Bxb5+ is a great find. It wins 1 point of material in the engine's line.",
         "critical": true,
         "eval_after": {
           "kind": "cp",
@@ -1191,7 +1191,7 @@
         "best_san": "Kd8",
         "best_uci": "e8d8",
         "class": "good",
-        "commentary": null,
+        "commentary": "Nbd7 is a good move. Best was Kd8.",
         "critical": false,
         "eval_after": {
           "kind": "cp",
@@ -1226,7 +1226,7 @@
         "best_san": "O-O-O",
         "best_uci": "e1c1",
         "class": "best",
-        "commentary": null,
+        "commentary": "O-O-O is the engine's top choice. It wins 3 points of material in the engine's line.",
         "critical": false,
         "eval_after": {
           "kind": "cp",
@@ -1263,7 +1263,7 @@
         "best_san": "Qc5",
         "best_uci": "e7c5",
         "class": "good",
-        "commentary": null,
+        "commentary": "Rd8 is a good move. Best was Qc5.",
         "critical": false,
         "eval_after": {
           "kind": "cp",
@@ -1298,7 +1298,7 @@
         "best_san": "Rxd7",
         "best_uci": "d1d7",
         "class": "best",
-        "commentary": null,
+        "commentary": "Rxd7 is the engine's top choice. It wins 4 points of material in the engine's line.",
         "critical": false,
         "eval_after": {
           "kind": "cp",
@@ -1337,7 +1337,7 @@
         "best_san": "Nxd7",
         "best_uci": "f6d7",
         "class": "best",
-        "commentary": null,
+        "commentary": "Rxd7 is the best move.",
         "critical": false,
         "eval_after": {
           "kind": "cp",
@@ -1375,7 +1375,7 @@
         "best_san": "Rd1",
         "best_uci": "h1d1",
         "class": "great",
-        "commentary": null,
+        "commentary": "Rd1 is a great find.",
         "critical": true,
         "eval_after": {
           "kind": "cp",
@@ -1416,7 +1416,7 @@
         "best_san": "Qd6",
         "best_uci": "e7d6",
         "class": "good",
-        "commentary": null,
+        "commentary": "Qe6 is a good move. Best was Qd6.",
         "critical": false,
         "eval_after": {
           "kind": "cp",
@@ -1454,7 +1454,7 @@
         "best_san": "Bxd7+",
         "best_uci": "b5d7",
         "class": "best",
-        "commentary": null,
+        "commentary": "Bxd7+ is the engine's top choice. It wins 2 points of material in the engine's line.",
         "critical": false,
         "eval_after": {
           "kind": "cp",
@@ -1501,7 +1501,7 @@
         "best_san": "Nxd7",
         "best_uci": "f6d7",
         "class": "great",
-        "commentary": null,
+        "commentary": "Nxd7 is a great move. It captures the bishop.",
         "critical": true,
         "eval_after": {
           "kind": "cp",
@@ -1528,7 +1528,7 @@
         "best_san": "Qb8+",
         "best_uci": "b3b8",
         "class": "best",
-        "commentary": null,
+        "commentary": "Qb8+ is the engine's top choice. It leads to a forced checkmate in 2.",
         "critical": false,
         "eval_after": {
           "kind": "mate",
@@ -1554,7 +1554,7 @@
         "best_san": "Nxb8",
         "best_uci": "d7b8",
         "class": "best",
-        "commentary": null,
+        "commentary": "Nxb8 is the best move.",
         "critical": false,
         "eval_after": {
           "kind": "mate",
@@ -1579,7 +1579,7 @@
         "best_san": "Rd8#",
         "best_uci": "d1d8",
         "class": "best",
-        "commentary": null,
+        "commentary": "Rd8# is the engine's top choice. It forks the knight on b8 and the king on e8.",
         "critical": false,
         "eval_after": {
           "kind": "checkmate",

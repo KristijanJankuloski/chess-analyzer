@@ -5,4 +5,5 @@ critical plies: [3]
   1 f3       Book       loss=  8.5 best=e4
   2 e5       Book       loss=  0.0 best=e5
   3 g4       Blunder    loss= 44.4 best=Nc3
+      > g4 was a blunder; Nc3 was better. It allows Black to force checkmate in 1.
   4 Qh4#     Book       loss=  0.0 best=Qh4#

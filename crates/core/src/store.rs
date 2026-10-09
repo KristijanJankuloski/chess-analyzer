@@ -9,7 +9,7 @@ use thiserror::Error;
 use ts_rs::TS;
 
 use crate::game::Game;
-use crate::review::{Accuracy, Review};
+use crate::review::{Accuracy, Review, backfill_commentary};
 
 #[derive(Debug, Error)]
 #[error("game store error: {0}")]
@@ -162,10 +162,14 @@ impl GameStore {
         let Some((summary, game_json, review_json)) = row else {
             return Ok(None);
         };
+        let game: Game = serde_json::from_str(&game_json)?;
+        let mut review: Review = serde_json::from_str(&review_json)?;
+        // Reviews saved before commentary existed get theirs now.
+        backfill_commentary(&game, &mut review);
         Ok(Some(StoredGame {
             summary,
-            game: serde_json::from_str(&game_json)?,
-            review: serde_json::from_str(&review_json)?,
+            game,
+            review,
         }))
     }
 
@@ -289,6 +293,49 @@ mod tests {
         assert_eq!(reopened.get(id).unwrap().unwrap().game, game);
         drop(reopened);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_review_saved_before_commentary_existed_gets_it_when_loaded() {
+        let store = GameStore::in_memory().unwrap();
+        let game = parse_pgn("[White \"A\"]\n[Black \"B\"]\n\n1. e4 *")
+            .unwrap()
+            .remove(0);
+        let (_, mut review) = sample("A");
+        review.moves = vec![crate::review::MoveReview {
+            ply: 1,
+            move_number: 1,
+            side: Side::White,
+            san: "e4".into(),
+            uci: "e2e4".into(),
+            class: crate::classify::MoveClass::Best,
+            eval_before: Eval::Cp(20),
+            eval_after: Eval::Cp(20),
+            best_uci: Some("e2e4".into()),
+            best_san: Some("e4".into()),
+            best_pv: vec!["e2e4".into()],
+            loss: 0.0,
+            accuracy: 100.0,
+            critical: false,
+            commentary: None,
+        }];
+        let id = store.save(&game, &review).unwrap();
+        // Write the JSON the way an older version did: without a commentary key at all.
+        let mut value = serde_json::to_value(&review).unwrap();
+        value["moves"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("commentary");
+        store
+            .conn
+            .execute(
+                "UPDATE games SET review_json = ?1 WHERE id = ?2",
+                params![value.to_string(), id],
+            )
+            .unwrap();
+        let loaded = store.get(id).unwrap().unwrap();
+        let text = loaded.review.moves[0].commentary.as_deref();
+        assert!(text.is_some_and(|t| t.starts_with("e4 is ")), "{text:?}");
     }
 
     #[test]
