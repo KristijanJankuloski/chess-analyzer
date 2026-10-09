@@ -582,10 +582,6 @@ h2 {
   color: #ff8a80;
 }
 
-.live__provisional {
-  color: var(--muted);
-}
-
 .live__hint {
   margin: 0;
   color: var(--muted);

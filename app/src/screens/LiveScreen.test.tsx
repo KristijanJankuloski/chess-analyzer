@@ -83,16 +83,13 @@ describe("LiveScreen commentary", () => {
       move(1, review(2, "e7e5", "mistake", "c7c5", 90, WRITTEN), provisional),
     ]);
 
-  it("shows the commentary for the latest move, and says a provisional one may change", () => {
-    render(<Harness live={withCommentary(true)} initial={withMoves(...MOVES)} />);
-    expect(screen.getByText(/^e5 is a mistake; c5 was better\./)).toBeInTheDocument();
-    expect(screen.getByText(/This may change as the engine searches deeper\./)).toBeInTheDocument();
-  });
-
-  it("does not hedge a move whose class is settled", () => {
-    render(<Harness live={withCommentary(false)} initial={withMoves(...MOVES)} />);
-    expect(screen.getByText(/^e5 is a mistake; c5 was better\./)).toBeInTheDocument();
-    expect(screen.queryByText(/This may change/)).not.toBeInTheDocument();
+  it("shows the commentary for the latest move, with no extra note when it is provisional", () => {
+    for (const provisional of [true, false]) {
+      const { unmount } = render(<Harness live={withCommentary(provisional)} initial={withMoves(...MOVES)} />);
+      expect(screen.getByText(/^e5 is a mistake; c5 was better\./)).toBeInTheDocument();
+      expect(screen.queryByText(/may change/)).not.toBeInTheDocument();
+      unmount();
+    }
   });
 
   it("falls back to the short sentence while a move has no commentary", () => {

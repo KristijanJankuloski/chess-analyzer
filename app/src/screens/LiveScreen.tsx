@@ -127,9 +127,6 @@ export function LiveScreen({ draft, onDraftChange, live, onRestart, onReview, on
           {ply > 0 && (
             <p className="review__commentary live__commentary" aria-live="polite">
               {commentaryFor(view.data.moves[ply - 1], ply)}
-              {view.data.moves[ply - 1] && view.provisional[ply - 1] && (
-                <span className="live__provisional"> This may change as the engine searches deeper.</span>
-              )}
             </p>
           )}
           {entry.pending && (

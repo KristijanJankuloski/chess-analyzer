@@ -2647,4 +2647,6 @@ A fresh reviewer read the finished branch and found four accuracy problems that 
 - **Material facts need a horizon of at least two plies**, so a capture that is simply recaptured is no longer called a win.
 - **The fallback sentence gives the numbers** when both evaluations fall in the same wording band ("from +2.00 to +2.50 (from White's point of view)").
 
+- **The live "This may change as the engine searches deeper." note was removed** (the provisional badge already says so); the Live screen test now asserts that no such note appears.
+
 Not changed: exchange evaluation still ignores absolute pins (a documented approximation).

@@ -77,7 +77,6 @@ pub struct CommentaryInput {
     pub review: MoveReview,       // class, evals, loss, best_san, best_pv (UCI), ...
     pub reply_pv: Vec<String>,    // engine PV for the position after the move (UCI); may be empty
     pub opening: Option<Opening>,
-    pub depth: Option<u32>,       // depth the evidence rests on, for live provisional notes
 }
 ```
 
@@ -128,7 +127,7 @@ Each detector is a small pure function in its own file, tested on fixture positi
 2. **Cause:** the one or two highest-ranked facts, as a consequence of the move. For an error: "It allows Qb3, and after Bxf7+ Black's king is forced to e7 and Black can no longer castle." For a good move: what it achieves (wins a pawn, gives check, forces mate).
 3. **Better move** (errors only): "Qf6 was better", plus what it does when that is a fact.
 
-If the digest has no explanatory fact, the text says only what the engine shows: how the evaluation changed and which move was better. It never invents a cause. The text is deterministic and carries no depth notes; the live screen adds "This may change as the engine searches deeper." itself when a move is provisional.
+If the digest has no explanatory fact, the text says only what the engine shows: how the evaluation changed and which move was better. It never invents a cause. The text is deterministic and carries no depth notes.
 
 All wording lives in this one module, in English. Pluralisation and translation (Fluent) are out of scope for now; keeping the strings in one place makes that later move cheap.
 
@@ -143,7 +142,7 @@ There is no new command. Commentary is a field of the review: `MoveReview.commen
 The UI shows `commentaryFor(move, ply)`: `move.commentary`, or the old `describeMove` sentence when there is none (a move still being analysed, or a position that could not be read).
 
 - **Review screen:** the commentary line under the board.
-- **Live screen:** a commentary line under the status text, for the selected move. For a provisional move the UI appends "This may change as the engine searches deeper."
+- **Live screen:** a commentary line under the status text, for the selected move. A provisional move is already marked by its badge, so the line carries no extra note.
 - A review never fails because of commentary.
 
 ## CLI
@@ -162,7 +161,7 @@ The UI shows `commentaryFor(move, ply)`: `move.commentary`, or the old `describe
 - **Renderer:** each class, fact priority, the no-fact fallback, the last move, and a **grounding property test**: every piece, square and move named in the text appears in the digest, and the mover's colour is always the right one.
 - **Golden commentary** for the two fixture games, in the style of the existing golden reviews, so wording and detector changes show up as readable diffs.
 - **Pipeline:** a review's moves carry commentary; the live session's commentary matches a finished review's for the same analyses; a review saved without commentary gets it on load.
-- **Frontend:** commentary shown for the selected move on both screens, fallback while a move has none, provisional note in live.
+- **Frontend:** commentary shown for the selected move on both screens, fallback while a move has none.
 - **End-to-end:** the existing review and live scripts also assert that a commentary sentence appears.
 - The generated TypeScript drift check in CI covers the new types.
 
@@ -196,7 +195,7 @@ The commentary line keeps milestone 1's text and gains an "Explain" button. Pres
 
 - The button works on any classified move, using that move's current (frozen or still-deepening) analysis.
 - While the call runs the button shows a busy state. Moving on to another move does not cancel it; its text is cached and shown when the user returns to that move. A new move or take-back sends `cancel_explain("live")` to drop anything still queued.
-- A provisional move's text carries "based on depth N, may change". Pressing Explain again after the search has deepened produces a new explanation, because the digest differs.
+- Pressing Explain again after the search has deepened produces a new explanation, because the digest differs.
 - The model and Stockfish compete for CPU while the explanation is generated. The user chooses when, so this is their trade-off.
 - The button is not rendered when the coach is off. On but unreachable, it stays visible and a press reports the error.
 
@@ -284,7 +283,7 @@ Events go out on the `explain-event` channel: `Ready { key, ply, text }`, `Faile
   - Prompt snapshot tests, and echo stripping.
   - One integration test against a real local model, skipped when none is reachable (as with the Stockfish tests).
   - With the coach off, the service constructs no provider and a `ScriptedProvider` records zero calls.
-- **Frontend (fake `Api`):** the milestone-1-to-AI swap and badge, regenerate, cached and failure states. With the coach off, no LLM element is rendered anywhere, no LLM `Api` method is called, and Settings shows only the toggle. The live Explain button sends exactly one request per press, shows busy and then the AI text, shows a provisional note on a shallow analysis, and is absent when the coach is off. The Settings section.
+- **Frontend (fake `Api`):** the milestone-1-to-AI swap and badge, regenerate, cached and failure states. With the coach off, no LLM element is rendered anywhere, no LLM `Api` method is called, and Settings shows only the toggle. The live Explain button sends exactly one request per press, shows busy and then the AI text, and is absent when the coach is off. The Settings section.
 - **End-to-end:** `npm run e2e:explain` drives the real app against a stub OpenAI-compatible server, so it needs no model.
 - **Tuning tool:** `chess-analyzer explain game.pgn [--dry-run]` prints each critical move's digest and the model's explanation; `--dry-run` prints only the prompts.
 
