@@ -11,8 +11,10 @@ use thiserror::Error;
 use ts_rs::TS;
 
 use crate::classify::{MoveClass, MoveContext, Thresholds, classify};
+use crate::commentary;
 use crate::engine::{AnalysisLine, Analyzer, EngineError, Limits, PositionAnalysis};
 use crate::eval::{Eval, Side, move_accuracy};
+use crate::facts::{CommentaryInput, Digest, digest};
 use crate::game::Game;
 use crate::openings::{Opening, OpeningBook};
 
@@ -63,6 +65,11 @@ pub struct MoveReview {
     /// 0 to 100.
     pub accuracy: f64,
     pub critical: bool,
+    /// A few plain sentences about the move, written from the engine's own lines (see
+    /// `commentary`). `None` for a review saved before commentary existed, or when the move's
+    /// position could not be read.
+    #[serde(default)]
+    pub commentary: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
@@ -99,7 +106,7 @@ fn material(pos: &Chess, color: Color) -> i32 {
         + 9 * count(Role::Queen)
 }
 
-fn balance(pos: &Chess, color: Color) -> i32 {
+pub(crate) fn balance(pos: &Chess, color: Color) -> i32 {
     material(pos, color) - material(pos, color.other())
 }
 
@@ -226,7 +233,7 @@ pub(crate) fn review_move(
     let class = classify(&ctx, thresholds);
     let loss = ctx.loss();
 
-    MoveReview {
+    let mut review = MoveReview {
         ply: i + 1,
         move_number: game.positions[i]
             .split(' ')
@@ -245,6 +252,44 @@ pub(crate) fn review_move(
         loss,
         accuracy: move_accuracy(ctx.win_before, ctx.win_before - loss),
         critical: class.is_critical(),
+        commentary: None,
+    };
+    // The engine's expected reply to the played move is the best line of the position after it.
+    let commentary = commentary::write(&CommentaryInput {
+        fen_before: &game.positions[i],
+        review: &review,
+        reply_pv: &after_analysis.lines[0].pv,
+    });
+    review.commentary = commentary;
+    review
+}
+
+/// The facts about move `i` (0-based) of a finished review, rebuilt from the game and the review
+/// alone: the engine's reply to the move is the best line stored with the next move. `None` if the
+/// move or its position cannot be read. This is what the CLI's `--facts` prints.
+pub fn digest_for(game: &Game, review: &Review, i: usize) -> Option<Digest> {
+    let mv = review.moves.get(i)?;
+    let reply: Vec<String> = review
+        .moves
+        .get(i + 1)
+        .map(|next| next.best_pv.clone())
+        .unwrap_or_default();
+    digest(&CommentaryInput {
+        fen_before: game.positions.get(i)?,
+        review: mv,
+        reply_pv: &reply,
+    })
+}
+
+/// Writes the commentary a review saved before commentary existed lacks, from the game and the
+/// review alone (see `digest_for`; the last move has no next move, so it gets commentary without
+/// reply facts). Moves that already have commentary are left alone.
+pub fn backfill_commentary(game: &Game, review: &mut Review) {
+    for i in 0..review.moves.len().min(game.moves.len()) {
+        if review.moves[i].commentary.is_none() {
+            let text = digest_for(game, review, i).map(|d| commentary::render(&d));
+            review.moves[i].commentary = text;
+        }
     }
 }
 
@@ -420,6 +465,10 @@ mod tests {
         assert_eq!(review.moves[2].best_san.as_deref(), Some("d4"));
         assert_eq!(review.moves[2].eval_after, Eval::Mate(-1));
         assert_eq!(review.critical_plies, vec![1, 3]);
+        assert_eq!(
+            review.moves[2].commentary.as_deref(),
+            Some("g4 was a blunder; d4 was better. It allows Black to force checkmate in 1.")
+        );
         assert!(review.accuracy.black.unwrap() > review.accuracy.white.unwrap());
         assert_eq!(review.engine, "scripted");
     }

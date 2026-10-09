@@ -72,6 +72,41 @@ function drop(from: string, to: string): boolean {
   return accepted;
 }
 
+describe("LiveScreen commentary", () => {
+  const WRITTEN = "e5 is a mistake; c5 was better. After Nf3, the pawn on e5 is attacked and short of protection.";
+  const withCommentary = (provisional: boolean) =>
+    liveState(MOVES, [
+      position(1, 0, "e2e4", cp(30)),
+      position(1, 1, "e7e5", cp(25)),
+      position(1, 2, "g1f3", cp(31)),
+      move(1, review(1, "e2e4", "best", "e2e4"), false),
+      move(1, review(2, "e7e5", "mistake", "c7c5", 90, WRITTEN), provisional),
+    ]);
+
+  it("shows the commentary for the latest move, with no extra note when it is provisional", () => {
+    for (const provisional of [true, false]) {
+      const { unmount } = render(<Harness live={withCommentary(provisional)} initial={withMoves(...MOVES)} />);
+      expect(screen.getByText(/^e5 is a mistake; c5 was better\./)).toBeInTheDocument();
+      expect(screen.queryByText(/may change/)).not.toBeInTheDocument();
+      unmount();
+    }
+  });
+
+  it("falls back to the short sentence while a move has no commentary", () => {
+    render(<Harness live={ANALYSED} initial={withMoves(...MOVES)} />);
+    expect(screen.getByText(/^e7e5 is a mistake\./)).toBeInTheDocument();
+  });
+
+  it("says a move is being analysed before the engine has classified it, and shows nothing at the start", () => {
+    const { unmount } = render(<Harness initial={withMoves("e2e4")} />);
+    expect(screen.getByText("Analysing this move…")).toBeInTheDocument();
+    unmount();
+    render(<Harness />);
+    expect(screen.queryByText("Analysing this move…")).not.toBeInTheDocument();
+    expect(screen.queryByText("The starting position.")).not.toBeInTheDocument();
+  });
+});
+
 describe("LiveScreen", () => {
   it("starts with an empty board, nothing to review and the engine still to answer", () => {
     render(<Harness />);

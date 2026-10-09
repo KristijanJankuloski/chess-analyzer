@@ -2,8 +2,10 @@
 
 pub mod cache;
 pub mod classify;
+pub mod commentary;
 pub mod engine;
 pub mod eval;
+pub mod facts;
 pub mod game;
 pub mod jobs;
 pub mod live;

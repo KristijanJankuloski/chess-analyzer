@@ -17,7 +17,7 @@ use chess_analyzer_core::engine::{
 };
 use chess_analyzer_core::game::{Game, parse_pgn};
 use chess_analyzer_core::openings::OpeningBook;
-use chess_analyzer_core::review::{Review, ReviewOptions, review_game};
+use chess_analyzer_core::review::{Review, ReviewOptions, digest_for, review_game};
 use chess_analyzer_core::store::GameStore;
 
 const FIXTURES: &[&str] = &["fools_mate", "opera_game"];
@@ -59,6 +59,12 @@ fn snapshot(review: &Review) -> String {
             m.loss,
             m.best_san.as_deref().unwrap_or("-")
         ));
+        if m.critical {
+            out.push_str(&format!(
+                "      > {}\n",
+                m.commentary.as_deref().unwrap_or("(no commentary)")
+            ));
+        }
     }
     out
 }
@@ -144,6 +150,52 @@ fn reviews_match_their_golden_snapshots() {
             "review of {name} changed; if intended, re-run with UPDATE_GOLDEN=1"
         );
     }
+}
+
+/// Every square written in `text`: a file letter a-h followed by a rank digit 1-8.
+fn squares_in(text: &str) -> Vec<String> {
+    let chars: Vec<char> = text.chars().collect();
+    chars
+        .windows(2)
+        .filter(|pair| ('a'..='h').contains(&pair[0]) && ('1'..='8').contains(&pair[1]))
+        .map(|pair| pair.iter().collect())
+        .collect()
+}
+
+/// The commentary may only say what the digest holds: every square it names, and every kind of
+/// piece it names (the king aside, which sentences use for "the king is driven"), appears in the
+/// digest of the same move.
+#[test]
+fn commentary_only_says_what_the_digest_holds() {
+    let mut checked = 0;
+    for name in FIXTURES {
+        let (game, review) = replay(name);
+        for (i, mv) in review.moves.iter().enumerate() {
+            let Some(text) = &mv.commentary else {
+                continue;
+            };
+            let d = digest_for(&game, &review, i).expect("a digest for a move that has commentary");
+            let json = serde_json::to_string(&d).expect("serialize");
+            for square in squares_in(text) {
+                assert!(
+                    json.contains(&square),
+                    "{name} ply {}: the text names {square}, which the digest does not hold:\n{text}\n{json}",
+                    mv.ply
+                );
+            }
+            for piece in ["pawn", "knight", "bishop", "rook", "queen"] {
+                if text.contains(piece) {
+                    assert!(
+                        json.contains(&format!("\"{piece}\"")),
+                        "{name} ply {}: the text names a {piece}, which the digest does not hold:\n{text}",
+                        mv.ply
+                    );
+                }
+            }
+            checked += 1;
+        }
+    }
+    assert!(checked > 20, "only {checked} moves had commentary");
 }
 
 /// Wraps an analyzer and remembers every answer, in call order.

@@ -22,6 +22,7 @@ export function review(
   cls: MoveClass,
   bestUci: string | null = null,
   accuracy = 90,
+  commentary: string | null = null,
 ): MoveReview {
   return {
     ply,
@@ -38,6 +39,7 @@ export function review(
     loss: 0,
     accuracy,
     critical: false,
+    commentary,
   };
 }
 

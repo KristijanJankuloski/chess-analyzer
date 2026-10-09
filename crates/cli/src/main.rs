@@ -56,6 +56,12 @@ struct ReviewArgs {
     /// Print the full review as JSON instead of text.
     #[arg(long)]
     json: bool,
+    /// Also print the commentary for each critical move.
+    #[arg(long)]
+    commentary: bool,
+    /// Also print the ranked facts each commentary was written from (implies --commentary).
+    #[arg(long)]
+    facts: bool,
 }
 
 fn read_input(source: &str) -> Result<String> {
@@ -137,6 +143,9 @@ fn review(args: ReviewArgs) -> Result<()> {
         println!("{}", serde_json::to_string_pretty(&review)?);
     } else {
         print!("{}", report::render(&review));
+        if args.commentary || args.facts {
+            print!("{}", report::render_commentary(game, &review, args.facts));
+        }
     }
     Ok(())
 }
@@ -203,6 +212,14 @@ mod tests {
             "64",
         ]);
         assert!(cli.is_ok());
+    }
+
+    #[test]
+    fn commentary_and_facts_are_optional_flags() {
+        let Command::Review(plain) = parse(&[]).unwrap().command;
+        assert!(!plain.commentary && !plain.facts);
+        let Command::Review(asked) = parse(&["--commentary", "--facts"]).unwrap().command;
+        assert!(asked.commentary && asked.facts);
     }
 
     #[test]

@@ -31,4 +31,10 @@ loss: number,
 /**
  * 0 to 100.
  */
-accuracy: number, critical: boolean, };
+accuracy: number, critical: boolean, 
+/**
+ * A few plain sentences about the move, written from the engine's own lines (see
+ * `commentary`). `None` for a review saved before commentary existed, or when the move's
+ * position could not be read.
+ */
+commentary: string | null, };

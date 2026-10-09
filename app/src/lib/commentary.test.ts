@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { foolsMate } from "../fixtures";
 import type { MoveReview } from "../generated/MoveReview";
-import { describeMove } from "./commentary";
+import { commentaryFor, describeMove } from "./commentary";
 
 const base: MoveReview = foolsMate.review.moves[2]; // 2. g4?? with best Nc3
 
@@ -41,5 +41,18 @@ describe("describeMove", () => {
   it("leaves out the cost when it is negligible", () => {
     const text = describeMove({ ...base, class: "inaccuracy", loss: 0.04 }, 3);
     expect(text).not.toContain("cost");
+  });
+});
+
+describe("commentaryFor", () => {
+  it("prefers the commentary written from the engine's lines", () => {
+    const written = { ...base, commentary: "g4 was a blunder; Nc3 was better. It allows Black to force checkmate in 1." };
+    expect(commentaryFor(written, 3)).toBe(written.commentary);
+  });
+
+  it("falls back to the short sentence when a move has no commentary", () => {
+    expect(commentaryFor({ ...base, commentary: null }, 3)).toBe(describeMove(base, 3));
+    expect(commentaryFor(null, 3)).toBe("Analysing this move…");
+    expect(commentaryFor(null, 0)).toBe("The starting position.");
   });
 });

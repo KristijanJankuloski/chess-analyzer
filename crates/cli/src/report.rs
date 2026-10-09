@@ -2,7 +2,8 @@
 
 use chess_analyzer_core::classify::MoveClass;
 use chess_analyzer_core::eval::Side;
-use chess_analyzer_core::review::{MoveReview, Review};
+use chess_analyzer_core::game::Game;
+use chess_analyzer_core::review::{MoveReview, Review, digest_for};
 
 fn class_label(class: MoveClass) -> &'static str {
     match class {
@@ -87,6 +88,33 @@ pub fn render(review: &Review) -> String {
     out
 }
 
+/// The commentary under each critical move, as shown in the app. With `show_facts`, the ranked
+/// facts it was written from follow each sentence, as JSON, for checking wording and detectors
+/// against real games.
+pub fn render_commentary(game: &Game, review: &Review, show_facts: bool) -> String {
+    let mut out = String::from("\nCommentary\n");
+    if review.critical_plies.is_empty() {
+        out.push_str("  none\n");
+    }
+    for &ply in &review.critical_plies {
+        let m = &review.moves[ply - 1];
+        out.push_str(&format!(
+            "  {:<14} {}\n",
+            move_label(m),
+            class_label(m.class)
+        ));
+        out.push_str(&format!(
+            "      {}\n",
+            m.commentary.as_deref().unwrap_or("(no commentary)")
+        ));
+        if show_facts && let Some(digest) = digest_for(game, review, ply - 1) {
+            let facts = serde_json::to_string(&digest.facts).unwrap_or_default();
+            out.push_str(&format!("      facts: {facts}\n"));
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -120,6 +148,7 @@ mod tests {
             loss,
             accuracy: 50.0,
             critical: class.is_critical(),
+            commentary: None,
         }
     }
 
@@ -181,6 +210,45 @@ mod tests {
         assert!(critical.contains("+0.20 -> M3"));
         assert!(critical.contains("best was d4"));
         assert!(!critical.contains("1. e4"));
+    }
+
+    fn opera_game_review() -> (Game, Review) {
+        use chess_analyzer_core::engine::{PositionAnalysis, ScriptedAnalyzer};
+        use chess_analyzer_core::game::parse_pgn;
+        use chess_analyzer_core::openings::OpeningBook;
+        use chess_analyzer_core::review::{ReviewOptions, review_game};
+        use std::sync::atomic::AtomicBool;
+        let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/fixtures");
+        let pgn = std::fs::read_to_string(fixtures.join("opera_game.pgn")).unwrap();
+        let recorded = std::fs::read_to_string(fixtures.join("opera_game.analysis.json")).unwrap();
+        let analyses: Vec<PositionAnalysis> = serde_json::from_str(&recorded).unwrap();
+        let game = parse_pgn(&pgn).unwrap().remove(0);
+        let review = review_game(
+            &game,
+            &mut ScriptedAnalyzer::new(analyses),
+            &ReviewOptions::default(),
+            OpeningBook::bundled(),
+            &AtomicBool::new(false),
+            |_| {},
+        )
+        .unwrap();
+        (game, review)
+    }
+
+    #[test]
+    fn commentary_follows_each_critical_move_and_facts_are_opt_in() {
+        let (game, review) = opera_game_review();
+        let plain = render_commentary(&game, &review, false);
+        assert!(
+            plain.contains("Nf6 is a mistake; Qf6 was better."),
+            "{plain}"
+        );
+        assert!(!plain.contains("facts:"));
+        let detailed = render_commentary(&game, &review, true);
+        assert!(
+            detailed.contains(r#"facts: [{"fact":"loose""#),
+            "{detailed}"
+        );
     }
 
     #[test]

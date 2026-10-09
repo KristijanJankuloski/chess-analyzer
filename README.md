@@ -6,7 +6,7 @@ mistake, miss, blunder), scores both players' accuracy and names the opening. Ev
 your machine, with no account and no network.
 
 **Status:** the engine core, a command-line reviewer and a desktop app for reviewing, recording and following live games exist.
-LLM commentary comes next. See [AGENTS.md](AGENTS.md) for the architecture and
+Every move also gets a plain-language explanation written from the engine's own lines (no model needed); an optional local-LLM coach comes later. See [AGENTS.md](AGENTS.md) for the architecture and
 [docs/superpowers/specs](docs/superpowers/specs) for the design.
 
 ## Getting started
@@ -81,6 +81,8 @@ Use `-` instead of a path to read from standard input.
 | `--game N` | 1 | Which game to review when the PGN file contains several. |
 | `--engine PATH` | auto | Stockfish executable. Otherwise `STOCKFISH_PATH`, then `engines/stockfish`. |
 | `--json` | off | Print the full review as JSON instead of the text report. |
+| `--commentary` | off | Also print the plain-language explanation under each critical moment. |
+| `--facts` | off | Also print the ranked facts each explanation was written from, as JSON (implies `--commentary`). |
 | `--cache FILE` / `--no-cache` | `chess-analyzer-cache.db` | Analyses are cached in a SQLite file, so re-reviewing a game is nearly instant. |
 
 Depth must be 1 to 60, MultiPV 1 to 10, threads 1 to 256 and hash 1 to 65536 MB; anything else is refused.
