@@ -63,6 +63,11 @@ pub struct MoveReview {
     /// 0 to 100.
     pub accuracy: f64,
     pub critical: bool,
+    /// A few plain sentences about the move, written from the engine's own lines (see
+    /// `commentary`). `None` for a review saved before commentary existed, or when the move's
+    /// position could not be read.
+    #[serde(default)]
+    pub commentary: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
@@ -99,7 +104,7 @@ fn material(pos: &Chess, color: Color) -> i32 {
         + 9 * count(Role::Queen)
 }
 
-fn balance(pos: &Chess, color: Color) -> i32 {
+pub(crate) fn balance(pos: &Chess, color: Color) -> i32 {
     material(pos, color) - material(pos, color.other())
 }
 
@@ -245,6 +250,7 @@ pub(crate) fn review_move(
         loss,
         accuracy: move_accuracy(ctx.win_before, ctx.win_before - loss),
         critical: class.is_critical(),
+        commentary: None,
     }
 }
 

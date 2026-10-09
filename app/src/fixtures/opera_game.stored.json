@@ -370,6 +370,7 @@
         "best_san": "e4",
         "best_uci": "e2e4",
         "class": "book",
+        "commentary": null,
         "critical": false,
         "eval_after": {
           "kind": "cp",
@@ -404,6 +405,7 @@
         "best_san": "e5",
         "best_uci": "e7e5",
         "class": "book",
+        "commentary": null,
         "critical": false,
         "eval_after": {
           "kind": "cp",
@@ -445,6 +447,7 @@
         "best_san": "Nf3",
         "best_uci": "g1f3",
         "class": "book",
+        "commentary": null,
         "critical": false,
         "eval_after": {
           "kind": "cp",
@@ -482,6 +485,7 @@
         "best_san": "Nf6",
         "best_uci": "g8f6",
         "class": "book",
+        "commentary": null,
         "critical": false,
         "eval_after": {
           "kind": "cp",
@@ -520,6 +524,7 @@
         "best_san": "d4",
         "best_uci": "d2d4",
         "class": "book",
+        "commentary": null,
         "critical": false,
         "eval_after": {
           "kind": "cp",
@@ -553,6 +558,7 @@
         "best_san": "Nf6",
         "best_uci": "g8f6",
         "class": "book",
+        "commentary": null,
         "critical": false,
         "eval_after": {
           "kind": "cp",
@@ -589,6 +595,7 @@
         "best_san": "Be3",
         "best_uci": "c1e3",
         "class": "book",
+        "commentary": null,
         "critical": false,
         "eval_after": {
           "kind": "cp",
@@ -627,6 +634,7 @@
         "best_san": "Nc6",
         "best_uci": "b8c6",
         "class": "mistake",
+        "commentary": null,
         "critical": true,
         "eval_after": {
           "kind": "cp",
@@ -659,6 +667,7 @@
         "best_san": "Qxf3",
         "best_uci": "d1f3",
         "class": "best",
+        "commentary": null,
         "critical": false,
         "eval_after": {
           "kind": "cp",
@@ -698,6 +707,7 @@
         "best_san": "dxe5",
         "best_uci": "d6e5",
         "class": "best",
+        "commentary": null,
         "critical": false,
         "eval_after": {
           "kind": "cp",
@@ -746,6 +756,7 @@
         "best_san": "Qb3",
         "best_uci": "f3b3",
         "class": "good",
+        "commentary": null,
         "critical": false,
         "eval_after": {
           "kind": "cp",
@@ -788,6 +799,7 @@
         "best_san": "Qf6",
         "best_uci": "d8f6",
         "class": "mistake",
+        "commentary": null,
         "critical": true,
         "eval_after": {
           "kind": "cp",
@@ -826,6 +838,7 @@
         "best_san": "Qb3",
         "best_uci": "f3b3",
         "class": "great",
+        "commentary": null,
         "critical": true,
         "eval_after": {
           "kind": "cp",
@@ -860,6 +873,7 @@
         "best_san": "Bc5",
         "best_uci": "f8c5",
         "class": "good",
+        "commentary": null,
         "critical": false,
         "eval_after": {
           "kind": "cp",
@@ -899,6 +913,7 @@
         "best_san": "Qxb7",
         "best_uci": "b3b7",
         "class": "good",
+        "commentary": null,
         "critical": false,
         "eval_after": {
           "kind": "cp",
@@ -934,6 +949,7 @@
         "best_san": "c6",
         "best_uci": "c7c6",
         "class": "best",
+        "commentary": null,
         "critical": false,
         "eval_after": {
           "kind": "cp",
@@ -971,6 +987,7 @@
         "best_san": "Bg5",
         "best_uci": "c1g5",
         "class": "best",
+        "commentary": null,
         "critical": false,
         "eval_after": {
           "kind": "cp",
@@ -1011,6 +1028,7 @@
         "best_san": "Kd8",
         "best_uci": "e8d8",
         "class": "mistake",
+        "commentary": null,
         "critical": true,
         "eval_after": {
           "kind": "cp",
@@ -1051,6 +1069,7 @@
         "best_san": "Nxb5",
         "best_uci": "c3b5",
         "class": "great",
+        "commentary": null,
         "critical": true,
         "eval_after": {
           "kind": "cp",
@@ -1093,6 +1112,7 @@
         "best_san": "Qb4+",
         "best_uci": "e7b4",
         "class": "inaccuracy",
+        "commentary": null,
         "critical": true,
         "eval_after": {
           "kind": "cp",
@@ -1132,6 +1152,7 @@
         "best_san": "Bxb5+",
         "best_uci": "c4b5",
         "class": "great",
+        "commentary": null,
         "critical": true,
         "eval_after": {
           "kind": "cp",
@@ -1170,6 +1191,7 @@
         "best_san": "Kd8",
         "best_uci": "e8d8",
         "class": "good",
+        "commentary": null,
         "critical": false,
         "eval_after": {
           "kind": "cp",
@@ -1204,6 +1226,7 @@
         "best_san": "O-O-O",
         "best_uci": "e1c1",
         "class": "best",
+        "commentary": null,
         "critical": false,
         "eval_after": {
           "kind": "cp",
@@ -1240,6 +1263,7 @@
         "best_san": "Qc5",
         "best_uci": "e7c5",
         "class": "good",
+        "commentary": null,
         "critical": false,
         "eval_after": {
           "kind": "cp",
@@ -1274,6 +1298,7 @@
         "best_san": "Rxd7",
         "best_uci": "d1d7",
         "class": "best",
+        "commentary": null,
         "critical": false,
         "eval_after": {
           "kind": "cp",
@@ -1312,6 +1337,7 @@
         "best_san": "Nxd7",
         "best_uci": "f6d7",
         "class": "best",
+        "commentary": null,
         "critical": false,
         "eval_after": {
           "kind": "cp",
@@ -1349,6 +1375,7 @@
         "best_san": "Rd1",
         "best_uci": "h1d1",
         "class": "great",
+        "commentary": null,
         "critical": true,
         "eval_after": {
           "kind": "cp",
@@ -1389,6 +1416,7 @@
         "best_san": "Qd6",
         "best_uci": "e7d6",
         "class": "good",
+        "commentary": null,
         "critical": false,
         "eval_after": {
           "kind": "cp",
@@ -1426,6 +1454,7 @@
         "best_san": "Bxd7+",
         "best_uci": "b5d7",
         "class": "best",
+        "commentary": null,
         "critical": false,
         "eval_after": {
           "kind": "cp",
@@ -1472,6 +1501,7 @@
         "best_san": "Nxd7",
         "best_uci": "f6d7",
         "class": "great",
+        "commentary": null,
         "critical": true,
         "eval_after": {
           "kind": "cp",
@@ -1498,6 +1528,7 @@
         "best_san": "Qb8+",
         "best_uci": "b3b8",
         "class": "best",
+        "commentary": null,
         "critical": false,
         "eval_after": {
           "kind": "mate",
@@ -1523,6 +1554,7 @@
         "best_san": "Nxb8",
         "best_uci": "d7b8",
         "class": "best",
+        "commentary": null,
         "critical": false,
         "eval_after": {
           "kind": "mate",
@@ -1547,6 +1579,7 @@
         "best_san": "Rd8#",
         "best_uci": "d1d8",
         "class": "best",
+        "commentary": null,
         "critical": false,
         "eval_after": {
           "kind": "checkmate",

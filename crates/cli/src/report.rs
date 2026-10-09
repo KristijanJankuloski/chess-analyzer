@@ -120,6 +120,7 @@ mod tests {
             loss,
             accuracy: 50.0,
             critical: class.is_critical(),
+            commentary: None,
         }
     }
 

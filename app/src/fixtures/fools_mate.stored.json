@@ -97,6 +97,7 @@
         "best_san": "e4",
         "best_uci": "e2e4",
         "class": "book",
+        "commentary": null,
         "critical": false,
         "eval_after": {
           "kind": "cp",
@@ -141,6 +142,7 @@
         "best_san": "e5",
         "best_uci": "e7e5",
         "class": "book",
+        "commentary": null,
         "critical": false,
         "eval_after": {
           "kind": "cp",
@@ -188,6 +190,7 @@
         "best_san": "Nc3",
         "best_uci": "b1c3",
         "class": "blunder",
+        "commentary": null,
         "critical": true,
         "eval_after": {
           "kind": "mate",
@@ -212,6 +215,7 @@
         "best_san": "Qh4#",
         "best_uci": "d8h4",
         "class": "book",
+        "commentary": null,
         "critical": false,
         "eval_after": {
           "kind": "checkmate",
