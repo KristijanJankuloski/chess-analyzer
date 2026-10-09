@@ -29,7 +29,7 @@ A manual test on the Opera Game (6...Nf6, a 13.8-point mistake) showed that the 
 | Detectors | Written in-house on `shakmaty`. No reusable chess-commentary library exists: the best-known tactic tagger (lichess-puzzler) is AGPL-3.0 and the repo is MIT, so its code is not copied; detectors are written from the public theme definitions. |
 | Sentence assembly | Plain Rust (`match` and `format!`), English only, all wording in one module. A template engine or Fluent is deferred until someone wants translations or editable wording. |
 | Digest shape | Typed facts (an enum), not strings, so both renderers match on them and neither parses text. Facts are ranked by significance. |
-| Where it runs | In Rust (`core`), behind a Tauri command, so the CLI and the app share it and chess logic stays out of the UI. The old `describeMove` stays only as the fallback while a move is not yet analysed. |
+| Where it runs | In Rust (`core`), as a field of the review itself: `review::review_move`, the one function that classifies a move for both a finished review and a live game, also writes its commentary from the two analyses it already holds. No new Tauri command, event or setting. The CLI and the app share it, and chess logic stays out of the UI. The old `describeMove` stays only as the fallback while a move has no commentary. |
 | Live games | Milestone 1 shows commentary for the selected move automatically: it costs microseconds and no engine time, so it cannot compete with the live search. Milestone 2 adds an Explain button. |
 | Coach toggle (milestone 2) | One switch in Settings (`llm.enabled`), off by default. Off means exactly the milestone-1 app: no connection of any kind, no LLM controls anywhere. |
 | LLM backends (milestone 2) | One OpenAI-compatible HTTP client (`{base_url}/chat/completions`) with a configurable base URL, model and optional API key. It covers Ollama (`http://localhost:11434/v1`), LM Studio, llama.cpp's `llama-server` and OpenAI. The `LlmProvider` trait stays so an embedded llama.cpp can be added later. |
@@ -44,9 +44,10 @@ A manual test on the Opera Game (6...Nf6, a 13.8-point mistake) showed that the 
 crates/
   core/
     src/facts.rs          # NEW (M1): CommentaryInput -> Digest (pure, shakmaty, no I/O)
-    src/facts/            # NEW (M1): one small file per detector (exchange, king_safety, fork, pin, ...)
+    src/facts/            # NEW (M1): one small file per detector (exchange, king, motifs: fork and pin)
     src/commentary.rs     # NEW (M1): Digest -> text (template renderer)
-    src/live.rs           # + a query for the current analysis of a ply
+    src/review.rs         # MoveReview.commentary, written by review_move; digest_for; backfill_commentary
+    src/store.rs          # fills in commentary for reviews saved before it existed
     src/settings.rs       # + LlmSettings (M2)
   narrator/               # NEW crate (M2); depends on core
     src/provider.rs       # LlmProvider, Completion, LlmError, LlmStatus
@@ -56,8 +57,8 @@ crates/
     src/service.rs        # ExplainService: queue, worker thread, events
   cli/                    # + `review --commentary` and `--facts` (M1)
 app/
-  src-tauri/              # + move_commentary command (M1); explain commands and events (M2)
-  src/                    # commentary line fed by the backend (M1); AI badge, Explain button, Settings section (M2)
+  src-tauri/              # unchanged in M1; explain commands and events (M2)
+  src/                    # commentary line reads MoveReview.commentary (M1); AI badge, Explain button, Settings section (M2)
 ```
 
 The dependency direction is the point of the split: `core::facts` is the only code that looks at a board, `core::commentary` and `narrator` see nothing but its output, and `core` never depends on `narrator`.
@@ -102,21 +103,22 @@ pub struct Digest {            // sketch; exact fields are settled in the plan
     pub facts: Vec<Fact>,          // ranked by significance, most important first
     pub depth: Option<u32>,
 }
-pub enum Fact { MateAllowed{..}, MateMissed{..}, MaterialLost{..}, HangsPiece{..},
-                ForcedKingMove{..}, LostCastling, Fork{..}, Pin{..}, /* ... */ }
+pub enum Fact { MateAllowed{..}, MateMissed{..}, MaterialLost{..}, Loose{..}, ForcedKingMove{..},
+                AllowsFork{..}, AllowsPin{..},               // consequences for the mover
+                ForcesMate{..}, WinsMaterial{..}, Forks{..}, Pins{..} }   // what the move achieves
 ```
 
-Each fact is independent and optional. A PV move that does not replay drops only its own fact; if even the basics cannot be built, the app falls back to the old sentence. The digest is deterministic and unit-testable, and derives `ts_rs::TS` so milestone 2 and the UI can use it.
+Each fact is independent and optional. A PV move that does not replay drops only its own fact; if even the basics cannot be built, the app falls back to the old sentence. The digest is deterministic and unit-testable, and serialises to JSON (`chess-analyzer review --facts` prints it); milestone 2 renders the same digest into a prompt.
 
 ### Detectors
 
-Each detector is a small pure function `fn(&Context) -> Option<Fact>` in its own file, tested on fixture positions. Adding a motif never touches the others. The first set, chosen by what explains real mistakes:
+Each detector is a small pure function in its own file, tested on fixture positions. Adding a motif never touches the others. The first set, chosen by what explains real mistakes:
 
 - **Material along the lines:** balance now, at the end of the played line and at the end of the best line.
 - **Exchange-aware loose pieces:** pieces attacked and undefended, or attacked by something cheaper, *including batteries*. A plain attacker-versus-defender count is not enough: after 7.Qb3 the queen stands behind Bc4 on the diagonal to f7, and a count sees one attacker. This needs a real static-exchange evaluation.
 - **King safety:** a check answered by a king move, lost castling rights. In the Opera Game, 6...Nf6 and the best move 6...Qf6 end with identical material, so material cannot explain the 13.8-point loss; the forced `Ke7` does.
 - **Mates:** forced mate allowed, mate missed, a mate that was slower.
-- **Motifs:** fork, pin, back-rank weakness, discovered attack; the plan fixes the order.
+- **Motifs:** fork and pin first (a move that forks several pieces, or pins a piece worth at least a minor piece to the king; each also reported when it is the opponent's best reply). Back-rank weakness and discovered attack follow the same pattern later, one small function each.
 
 ## `core::commentary`
 
@@ -126,17 +128,23 @@ Each detector is a small pure function `fn(&Context) -> Option<Fact>` in its own
 2. **Cause:** the one or two highest-ranked facts, as a consequence of the move. For an error: "It allows Qb3, and after Bxf7+ Black's king is forced to e7 and Black can no longer castle." For a good move: what it achieves (wins a pawn, gives check, forces mate).
 3. **Better move** (errors only): "Qf6 was better", plus what it does when that is a fact.
 
-If the digest has no explanatory fact, the text says only what the engine shows: how the evaluation changed and which move was better. It never invents a cause. A provisional live move carries "based on depth N, may change".
+If the digest has no explanatory fact, the text says only what the engine shows: how the evaluation changed and which move was better. It never invents a cause. The text is deterministic and carries no depth notes; the live screen adds "This may change as the engine searches deeper." itself when a move is provisional.
 
 All wording lives in this one module, in English. Pluralisation and translation (Fluent) are out of scope for now; keeping the strings in one place makes that later move cheap.
 
 ## Tauri app and UI
 
-`move_commentary(source, plies) -> Vec<Option<Commentary>>`, with `Commentary { text, digest }` and `source` being `Saved { game_id }` or `Live`. Rust builds each `CommentaryInput` from its own data: for a saved game, the stored game and review; for live, a new small query on `LiveSession` for the current analysis of that ply. The UI never constructs engine data. The call is synchronous and cheap (no engine, no I/O beyond reading the stored game), so there is no queue, no cache and no events. The command is added to the single `Api` interface with a Tauri implementation and a scriptable fake. All types derive `ts_rs::TS` into `app/src/generated/`.
+There is no new command. Commentary is a field of the review: `MoveReview.commentary: Option<String>` (serde default, so older JSON still loads), written by `review::review_move` from the two analyses it already holds: the position before the move, and the position after it, whose best line is the opponent's expected reply. So:
 
-- **Review screen:** one call for the whole game when a review loads; the commentary line shows the sentence for the selected move.
-- **Live screen:** the commentary for the selected move is requested whenever the selection or that move's analysis changes. Provisional moves carry the depth note.
-- **Fallback:** while a move is not yet analysed, or if the command fails, the UI shows the old `describeMove` sentence. A review never fails because of commentary.
+- a finished review has commentary on each move as soon as the move is classified, including while the review is still streaming in;
+- a live move gets its commentary together with its class, and a new one whenever either changes (the live session already re-sends a move when anything about it changes);
+- a review saved before this existed has no commentary on disk and gets it when it is loaded: `GameStore::get` calls `review::backfill_commentary`, which rebuilds the engine's reply to each move from the best line stored with the next move (the last move gets commentary without reply facts).
+
+The UI shows `commentaryFor(move, ply)`: `move.commentary`, or the old `describeMove` sentence when there is none (a move still being analysed, or a position that could not be read).
+
+- **Review screen:** the commentary line under the board.
+- **Live screen:** a commentary line under the status text, for the selected move. For a provisional move the UI appends "This may change as the engine searches deeper."
+- A review never fails because of commentary.
 
 ## CLI
 
@@ -146,14 +154,15 @@ All wording lives in this one module, in English. Pluralisation and translation 
 
 - A detector that cannot run (a PV move that does not replay, a missing reply line) drops only its own fact.
 - No usable fact: the evaluation-change sentence, honestly stated. The renderer never fills a gap with a guess.
-- The command fails: the UI falls back to the old sentence.
+- A move whose position or move cannot be read has `commentary: null`: the UI falls back to the old sentence.
 
 ## Testing
 
 - **Detectors:** hand-built fixture positions for captures, loose pieces including a battery (the `f7` case), forced king moves, mates, material deltas, promotion, and a missing `reply_pv`.
 - **Renderer:** each class, fact priority, the no-fact fallback, the last move, and a **grounding property test**: every piece, square and move named in the text appears in the digest, and the mover's colour is always the right one.
 - **Golden commentary** for the two fixture games, in the style of the existing golden reviews, so wording and detector changes show up as readable diffs.
-- **Frontend (fake `Api`):** commentary shown for the selected move, fallback while analysing and on failure, provisional note in live.
+- **Pipeline:** a review's moves carry commentary; the live session's commentary matches a finished review's for the same analyses; a review saved without commentary gets it on load.
+- **Frontend:** commentary shown for the selected move on both screens, fallback while a move has none, provisional note in live.
 - **End-to-end:** the existing review and live scripts also assert that a commentary sentence appears.
 - The generated TypeScript drift check in CI covers the new types.
 
@@ -228,7 +237,7 @@ It lives in the same SQLite database as saved games, behind its own connection, 
 
 ### Service
 
-`ExplainService` runs one worker thread with a queue, making one model call at a time. On-demand requests go to the front of the queue. It builds each `CommentaryInput` with the same source-to-input builder as milestone 1's command, never from UI-supplied engine data. A cancel drops the queued items for a scope. A call already in flight cannot be interrupted (it is a blocking HTTP read); it finishes, its text is cached, and the UI ignores it if the key is stale.
+`ExplainService` runs one worker thread with a queue, making one model call at a time. On-demand requests go to the front of the queue. It builds each `CommentaryInput` itself, never from UI-supplied engine data: `review::digest_for` for a saved game, and for a live game the analyses the live session holds (which would need a small new query on `LiveSession`). A cancel drops the queued items for a scope. A call already in flight cannot be interrupted (it is a blocking HTTP read); it finishes, its text is cached, and the UI ignores it if the key is stale.
 
 ## Settings
 
@@ -298,9 +307,6 @@ Events go out on the `explain-event` channel: `Ready { key, ply, text }`, `Faile
 
 ## Left for the implementation plan
 
-- Milestone 1 is planned first. Milestone 2 is planned later, if the gate in "Decisions" is passed.
-- The exact `Digest` and `Fact` fields; the ranking weights; the order in which motifs are added.
-- The static-exchange evaluation, including batteries, which is the largest single piece of detector work.
-- How `LiveSession` exposes the current analysis of a ply to the command.
-- The wording of the verdict and cause sentences, tuned with `review --commentary` on real games.
-- Milestone 2 only: prompt wording and examples, tuned against a real model (the user message should not end on a bare `COMMENT:` label, which made llama3.2 repeat the input); the `ureq` version and TLS feature; default `max_tokens`, temperature, length cap and timeouts.
+- Milestone 1 is planned in `docs/superpowers/plans/2026-10-09-move-commentary.md`. Milestone 2 is planned later, if the gate in "Decisions" is passed.
+- Later detectors for milestone 1: back-rank weakness, discovered attack, and a fact for trades; the wording is tuned with `review --commentary` on real games.
+- Milestone 2 only: prompt wording and examples, tuned against a real model (the user message should not end on a bare `COMMENT:` label, which made llama3.2 repeat the input); the `ureq` version and TLS feature; default `max_tokens`, temperature, length cap and timeouts; how `LiveSession` exposes the current analysis of a ply to the service.
